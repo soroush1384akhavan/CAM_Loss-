@@ -1,7 +1,7 @@
 seed: 42
 
-data_dir: "D:/CVLab/temp/SAM/cars_dataset"
-mask_root: "D:/CVLab/temp/SAM/sam_pseudo_masks_cars"
+data_dir: "/media/vision/ShareStorage-2/soroush/CVLab/cars_dataset/cars_dataset"
+mask_root: "/media/vision/ShareStorage-2/soroush/CVLab/masks/sam_pseudo_masks_cars"
 image_size: 224
 batch_size: 16
 val_ratio: 0.2
@@ -26,7 +26,11 @@ early_stopping_min_delta: 0.0
 
 # Total loss:
 # loss = classification_loss + lambda_cam * cam_loss
-lambda_cam: 1.0
+lambda_cam: 15.0
+lambda_cam_warmup_epochs: 15   
+lambda_cam_start: 0.0
+lambda_cam_warmup_power: 7.0 
+
 outside_weight: 1.0
 inside_weight: 1.0
 

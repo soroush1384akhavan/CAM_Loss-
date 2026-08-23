@@ -10,6 +10,13 @@ from src.model_factory import build_model
 from src.train import run_training
 from src.utils import get_device, set_seed
 from src.mask_config_utils import build_mask_config
+from src.adversarial import (
+    fgsm_attack,
+    pgd_attack,
+    clean_accuracy,
+    adversarial_accuracy,
+)
+from src.adversarial import evaluate_adversarial_robustness
 
 CONFIG_PATH = Path("configs/config.yaml")
 
@@ -105,7 +112,34 @@ def main():
         runs_dir=config.get("runs_dir", "runs"),
         test_loader=test_loader,
     )
+    
+    print("\n=== Adversarial evaluation ===")
+
+    attack_mean = config.get(
+        "attack_normalize_mean",
+        [0.485, 0.456, 0.406],
+    )
+
+    attack_std = config.get(
+        "attack_normalize_std",
+        [0.229, 0.224, 0.225],
+    )
+
+    results = evaluate_adversarial_robustness(
+        model=model,
+        loader=test_loader,
+        device=device,
+        mean=attack_mean,
+        std=attack_std,
+        epsilons=[
+            1 / 255,
+            2 / 255,
+            4 / 255,
+            8 / 255,
+        ],
+        pgd_steps=10,
+    )
 
 
 if __name__ == "__main__":
-    main()
+    main()  
