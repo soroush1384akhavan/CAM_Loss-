@@ -120,7 +120,7 @@ class ConvAdapter(nn.Module):
         self.conv2 = nn.Conv2d(width, outplanes, kernel_size=1, stride=1)
         # se
         # self.se = SqueezeExcitation(inplanes, width, outplanes, activation=act_layer)
-        self.se = nn.Parameter(1.0 * torch.ones((1, outplanes, 1, 1)), requires_grad=True)
+        self.se = nn.Parameter(torch.zeros((1, outplanes, 1, 1)), requires_grad=True)
 
     def forward(self, x):
         out = self.conv1(x)

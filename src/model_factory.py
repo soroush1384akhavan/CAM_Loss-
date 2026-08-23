@@ -1,10 +1,12 @@
 from src.model import ResNet18CAM
 from src.model_with_adapter import ResNet18CAMWithAdapter
+from src.model_with_adapter_clip import BiTMR50x1CAMWithAdapter  # مسیر رو با محل واقعی فایل تطبیق بده
 
 
 MODEL_REGISTRY = {
     "plain": ResNet18CAM,
     "adapter": ResNet18CAMWithAdapter,
+    "adapter_clip": BiTMR50x1CAMWithAdapter,
 }
 
 
@@ -23,12 +25,21 @@ def build_model(config: dict, num_classes: int):
         return model_cls(
             num_classes=num_classes,
             pretrained=bool(config.get("pretrained", True)),
-            use_adapter=bool(config.get("use_adapter", False)),
-            freeze_backbone=bool(config.get("freeze_backbone", False)),
-            adapter_reduction=int(config.get("adapter_reduction", 4)),
+            # use_adapter=bool(config.get("use_adapter", False)),
+            # freeze_backbone=bool(config.get("freeze_backbone", False)),
+            # adapter_reduction=int(config.get("adapter_reduction", 4)),
         )
 
     if model_type == "adapter":
+        return model_cls(
+            num_classes=num_classes,
+            pretrained=bool(config.get("pretrained", True)),
+            gamma=int(config.get("adapter_gamma", 4)),
+            adapter_kernel_size=int(config.get("adapter_kernel_size", 3)),
+            freeze_backbone=bool(config.get("freeze_backbone", True)),
+        )
+
+    if model_type == "adapter_clip":
         return model_cls(
             num_classes=num_classes,
             pretrained=bool(config.get("pretrained", True)),

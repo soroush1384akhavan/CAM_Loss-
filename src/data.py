@@ -16,7 +16,11 @@ def is_valid_image(path: str) -> bool:
         return True
     except Exception:
         return False
+    
+def _stem_from_any_path(path_str: str) -> str:
 
+    normalized = path_str.replace("\\", "/")
+    return Path(normalized).stem
 
 def _normalize_mapping(mapping: Optional[dict]) -> Dict[str, Path]:
     if mapping is None:
@@ -40,11 +44,11 @@ def load_valid_mask_stems(manifest_path: Path) -> Optional[set]:
 
             if has_mask == "1" and status == "ok":
                 if mask_path:
-                    valid.add(Path(mask_path).stem)
+                    valid.add(_stem_from_any_path(mask_path))
                 else:
                     image_path = row.get("image_path", "")
                     if image_path:
-                        valid.add(Path(image_path).stem)
+                        valid.add(_stem_from_any_path(image_path))
 
     return valid
 

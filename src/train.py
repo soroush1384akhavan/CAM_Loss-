@@ -104,6 +104,27 @@ def train_one_epoch(
         "acc": total_acc / n,
     }
 
+def _lambda_cam_for_epoch(epoch: int, target_lambda_cam: float, config: dict) -> float:
+    """
+    Power-law warm-up for lambda_cam (linear when warmup_power=1.0).
+
+    warmup_power > 1 keeps early epochs much closer to lambda_cam_start and
+    only accelerates toward target_lambda_cam in the later part of the
+    warmup window -- useful when even a slow linear ramp still pushes the
+    CAM term too hard before the classifier has learned anything.
+
+    warmup_epochs=0 (default) reproduces the old constant-lambda_cam
+    behaviour exactly, so existing configs are unaffected.
+    """
+    warmup_epochs = int(config.get("lambda_cam_warmup_epochs", 0))
+    start_lambda_cam = float(config.get("lambda_cam_start", 0.0))
+    warmup_power = float(config.get("lambda_cam_warmup_power", 1.0))
+
+    if warmup_epochs <= 0 or epoch >= warmup_epochs:
+        return target_lambda_cam
+
+    progress = (epoch / warmup_epochs) ** warmup_power
+    return start_lambda_cam + (target_lambda_cam - start_lambda_cam) * progress
 
 def _plot_learning_curve(history, save_path):
     try:
@@ -191,10 +212,10 @@ def analyze_loss_balance(history, run_dir):
     print(f"cam_loss (train): mean={summary['train_cam_loss_mean']:.4f} last={summary['train_cam_loss_last']:.4f}")
     if summary["suggested_lambda_cam_mean_over_epochs"] is not None:
         print(f"recommended lambda_cam ( AVG epochs، cls/cam): "
-              f"{summary['suggested_lambda_cam_mean_over_epochs']:.4f}")
+            f"{summary['suggested_lambda_cam_mean_over_epochs']:.4f}")
     if summary["suggested_lambda_cam_last_epoch"] is not None:
         print(f"recommended lambda_cam (based on last epoch): "
-              f"{summary['suggested_lambda_cam_last_epoch']:.4f}")
+            f"{summary['suggested_lambda_cam_last_epoch']:.4f}")
     print(f"saved: {out_path}")
 
     return summary
@@ -361,13 +382,14 @@ def run_training(
         writer = csv.writer(f)
 
         writer.writerow([
-            "epoch", "lr",
+            "epoch", "lr","lambda_cam",
             "train_loss", "train_cls_loss", "train_cam_loss", "train_acc",
             "val_loss", "val_cls_loss", "val_cam_loss", "val_acc",
         ])
 
         for epoch in range(1, epochs + 1):
             current_lr = optimizer.param_groups[0]["lr"]
+            current_lambda_cam = _lambda_cam_for_epoch(epoch, lambda_cam, config)
 
             print(f"\nEpoch [{epoch}/{epochs}] | lr={current_lr:.8f}")
 
@@ -388,7 +410,7 @@ def run_training(
                 optimizer=optimizer,
                 scaler=scaler,
                 device=device,
-                lambda_cam=lambda_cam,
+                lambda_cam=current_lambda_cam,
                 use_amp=use_amp,
                 cam_stats=train_cam_stats,
             )
@@ -399,7 +421,7 @@ def run_training(
                 ce_loss_fn=ce_loss_fn,
                 cam_loss_fn=cam_loss_fn,
                 device=device,
-                lambda_cam=lambda_cam,
+                lambda_cam=current_lambda_cam,
                 cam_stats=val_cam_stats,
             )
 
@@ -438,7 +460,7 @@ def run_training(
                         ce_loss_fn=ce_loss_fn,
                         cam_loss_fn=cam_loss_fn,
                         device=device,
-                        lambda_cam=lambda_cam,
+                        lambda_cam=current_lambda_cam,
                         max_batches=grad_probe_batches,
                     )
                     cam_row.update(_flatten_metrics("grad_", probe))
@@ -464,6 +486,7 @@ def run_training(
             writer.writerow([
                 epoch,
                 current_lr,
+                current_lambda_cam,
                 train_metrics["loss"],
                 train_metrics["cls_loss"],
                 train_metrics["cam_loss"],
@@ -493,7 +516,7 @@ def run_training(
                 path=run_dir / "last_resnet18_cam.pth",
                 extra={
                     "val_acc": val_metrics["acc"],
-                    "lambda_cam": lambda_cam,
+                    "lambda_cam": current_lambda_cam,
                     "lr": current_lr,
                 },
             )
@@ -509,7 +532,7 @@ def run_training(
                     path=run_dir / "best_resnet18_cam.pth",
                     extra={
                         "val_acc": best_val_acc,
-                        "lambda_cam": lambda_cam,
+                        "lambda_cam": current_lambda_cam,
                         "lr": current_lr,
                     },
                 )
@@ -581,7 +604,7 @@ def run_training(
             run_dir=run_dir,
             history=history,
             cam_rows=cam_rows,
-            lambda_cam=lambda_cam,
+            lambda_cam=current_lambda_cam,
             config=config,
             mask_audit=mask_audit,
         )
