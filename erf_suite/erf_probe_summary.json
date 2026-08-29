@@ -1,0 +1,13 @@
+{
+  "image_height": 224,
+  "image_width": 224,
+  "cam_grid": 7,
+  "models": {
+    "model": {
+      "mean_sigma_px": 45.487488135940346,
+      "mean_sigma_fraction_of_sqrt_area": 0.2030691434640194,
+      "effective_independent_samples": 6.062505347676224,
+      "cam_lag1_autocorrelation": 0.7218840256840323
+    }
+  }
+}

@@ -32,9 +32,9 @@ def save_checkpoint(model, optimizer, epoch, classes, path: str, extra: dict = N
 
     torch.save(payload, path)
     
-def latest_checkpoint_path(checkpoint_dir = "runs", pattern = "best_*.pth"):
+def latest_checkpoint_path(checkpoint_dir="runs", pattern="best_*.pth"):
     checkpoint_dir = Path(checkpoint_dir)
-    checkpoints = list(checkpoint_dir.glob(pattern))
+    checkpoints = list(checkpoint_dir.rglob(pattern))
     if not checkpoints:
         return None
     latest_checkpoint = max(checkpoints, key=lambda p: p.stat().st_mtime)
@@ -42,6 +42,9 @@ def latest_checkpoint_path(checkpoint_dir = "runs", pattern = "best_*.pth"):
     
 def load_checkpoint(model, optimizer=None, device=None):
     path = latest_checkpoint_path()
+    
+    # path = r"D:\CVLab\mainProj\runs\2026-08-27_14-22-37\best_resnet18_cam.pth"
+
     
     checkpoint = torch.load(path, map_location=device)
     model.load_state_dict(checkpoint["model_state_dict"])

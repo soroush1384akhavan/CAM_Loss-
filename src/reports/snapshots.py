@@ -114,12 +114,17 @@ class CAMSnapshotter:
         num_samples: int = 8,
         seed: int = 42,
         max_scan_batches: int = 50,
+        overlay_gamma: float = 0.6,
+        overlay_alpha_gain: float = 1.5,
     ):
         self.device = device
         self.classes = list(classes)
         self.out_dir = Path(run_dir) / "diagnostics" / "snapshots"
         self.font = _get_font()
         self.samples: List[dict] = []
+
+        self.overlay_gamma = overlay_gamma
+        self.overlay_alpha_gain = overlay_alpha_gain
 
         if loader is None or num_samples <= 0:
             return
@@ -207,7 +212,11 @@ class CAMSnapshotter:
         cam_norm = (cam_full - cam_full.min()) / (span + 1e-6)
         heat = _jet(cam_norm)
 
-        overlay = (0.55 * image_np + 0.45 * heat).astype(np.uint8)
+
+        cam_shaped = np.clip(cam_norm, 0.0, 1.0) ** self.overlay_gamma
+        alpha = np.clip(cam_shaped * self.overlay_alpha_gain, 0.0, 1.0)[:, :, None]
+        overlay = (alpha * heat + (1 - alpha) * image_np).astype(np.uint8)
+
         boundary = _mask_boundary(binary)
         overlay[boundary] = np.array([0, 255, 0], dtype=np.uint8)
 

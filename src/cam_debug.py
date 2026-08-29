@@ -15,7 +15,9 @@ matplotlib.use("Agg")
 import matplotlib.cm as cm
 from PIL import Image
 
-from src.utils import load_checkpoint
+from src.utils import load_checkpoint, get_device
+from src.model_factory import build_model
+
 
 
 def _compute_cam_mask_iou(cam: torch.Tensor, mask: torch.Tensor, cam_threshold: float = 0.5):
@@ -102,6 +104,8 @@ def run_cam_debug(
     cam_iou_threshold: float = 0.5,
     normalize_mean=(0.485, 0.456, 0.406),
     normalize_std=(0.229, 0.224, 0.225),
+    overlay_gamma: float = 0.6,
+    overlay_alpha_gain: float = 1.5,
 ):
 
     model.eval()
@@ -178,20 +182,53 @@ def run_cam_debug(
             img = img.clamp(0, 1).squeeze(0)
             img_np = (img.permute(1, 2, 0).numpy() * 255).astype("uint8")
 
-            cam_t = r["cam"]
-            cam_t = cam_t - cam_t.min()
-            cam_t = cam_t / (cam_t.max() + 1e-6)
+            cam_t = r["cam"].float()
             cam_np = cam_t.numpy()
 
-            cam_img = Image.fromarray((cam_np * 255).astype("uint8")).resize(
-                (img_np.shape[1], img_np.shape[0]), resample=Image.BILINEAR
+            # Resize RAW CAM first — keep negative / zero / positive values.
+            cam_img = Image.fromarray(cam_np.astype("float32"), mode="F").resize(
+                (img_np.shape[1], img_np.shape[0]),
+                resample=Image.BILINEAR,
             )
-            cam_resized = np.array(cam_img).astype("float32") / 255.0
 
-            heatmap = cm.jet(cam_resized)[:, :, :3]
+            cam_resized = np.array(cam_img).astype("float32")
+
+            # Symmetric normalization around zero.
+            # -1 -> negative
+            #  0 -> neutral
+            # +1 -> positive
+            max_abs = max(
+                abs(float(cam_resized.min())),
+                abs(float(cam_resized.max())),
+                1e-6,
+            )
+
+            cam_signed = np.clip(cam_resized / max_abs, -1.0, 1.0)
+
+            # --- Contrast boost -------------------------------------------------
+            # Push mid-strength activations further from zero so hot/cold regions
+            # separate more clearly from the neutral background. gamma < 1 makes
+            # small |cam_signed| values grow faster (more contrast); gamma = 1 is
+            # the old behaviour.
+            cam_signed = np.sign(cam_signed) * (np.abs(cam_signed) ** overlay_gamma)
+
+            # Convert [-1, +1] -> [0, 1] only for the colormap.
+            # Crucially: zero always becomes exactly 0.5.
+            cam_for_color = (cam_signed + 1.0) / 2.0
+
+            # blue = negative, white = zero, red = positive
+            heatmap = cm.coolwarm(cam_for_color)[:, :, :3]
             heatmap = (heatmap * 255).astype("uint8")
 
-            overlay = (0.5 * img_np + 0.5 * heatmap).astype("uint8")
+            # --- Variable-alpha blending -----------------------------------------
+            # Old behaviour blended everything at a flat 0.5/0.5, which washes the
+            # heatmap out and also paints a translucent white haze over neutral
+            # (near-zero) regions. Instead, blend strength follows |cam_signed|:
+            # strongly activated pixels (very positive or very negative) show the
+            # heatmap almost at full strength, while near-zero pixels stay close
+            # to the original image instead of getting a flat grey overlay.
+            alpha = np.clip(np.abs(cam_signed) * overlay_alpha_gain, 0.0, 1.0)[:, :, None]
+            overlay = (alpha * heatmap + (1 - alpha) * img_np).astype("uint8")
 
             true_name = classes[r["true_label"]]
             pred_name = classes[r["pred_label"]]
@@ -331,7 +368,7 @@ def main(model, test_loader, classes, device, run_dir):
 
 
 if __name__ == "__main__":
-    
+
     config_path = Path("configs/config.yaml")
     with open(config_path, "r", encoding="utf-8") as file:
         config = yaml.safe_load(file)
@@ -347,10 +384,14 @@ if __name__ == "__main__":
             mask_manifests=config.get("mask_manifests", None),
             test_ratio=config.get("test_ratio", 0.1),
     )
-    model = ResNet18CAM(num_classes=len(classes), pretrained=False).to("cuda")
+    num_classes = len(classes)
+    device = get_device()
+    
+    
+    model = build_model(config, num_classes).to(device)
     model = load_checkpoint(model, device="cuda")
-    
-       
+
+
     main(model=model, test_loader=test_loader, classes=classes, device="cuda", run_dir="runs")
-    
+
 ## for run : python -m src.cam_debug

@@ -81,12 +81,6 @@ class BasicBlockResidualParallelAdapter(nn.Module):
 
 
 class ResNet18CAMWithAdapter(nn.Module):
-    """
-    ResNet18 backbone (optionally frozen, pretrained) with a Conv-Adapter
-    attached in parallel to every residual block, plus a CAM head
-    (1x1 conv -> num_classes, then GAP) — همون رفتار ResNet18CAM ساده،
-    ولی با adapter. خروجی: (logits, cams) درست مثل مدل قبلی.
-    """
 
     def __init__(
         self,
@@ -106,6 +100,18 @@ class ResNet18CAMWithAdapter(nn.Module):
         if freeze_backbone:
             for parameter in base.parameters():
                 parameter.requires_grad = False
+        
+        # if freeze_backbone:
+        #     for module in base.modules():
+        #         if isinstance(module, nn.BatchNorm2d):
+        #             # keep BN affine params (gamma, beta) trainable,
+        #             # but running_mean/running_var still update via train-mode forward passes
+        #             for parameter in module.parameters():
+        #                 parameter.requires_grad = True
+        #         else:
+        #             for parameter in module.parameters(recurse=False):
+        #                 parameter.requires_grad = False
+        
 
         self.conv1 = base.conv1
         self.bn1 = base.bn1
@@ -119,7 +125,6 @@ class ResNet18CAMWithAdapter(nn.Module):
 
         feat_channels = base.fc.in_features  # 512 for resnet18
 
-        # CAM head: همیشه trainable، چون کلاس‌های جدید داریم و از صفر شروع می‌شه.
         self.cam_conv = nn.Conv2d(
             in_channels=feat_channels,
             out_channels=num_classes,
