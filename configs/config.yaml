@@ -1,7 +1,11 @@
 seed: 42
 
-data_dir: "/media/vision/ShareStorage-2/soroush/CVLab/cars_dataset/cars_dataset"
-mask_root: "/media/vision/ShareStorage-2/soroush/CVLab/masks/sam_pseudo_masks_cars"
+# data_dir: "/media/vision/ShareStorage-2/soroush/CVLab/cars_dataset/cars_dataset"
+# mask_root: "/media/vision/ShareStorage-2/soroush/CVLab/masks/sam_pseudo_masks_cars"
+
+data_dir: "D:/CVLab/temp/SAM/cars_dataset"
+mask_root: "D:/CVLab/temp/SAM/sam_pseudo_masks_cars"
+
 image_size: 224
 batch_size: 16
 val_ratio: 0.2
@@ -26,7 +30,7 @@ early_stopping_min_delta: 0.0
 
 # Total loss:
 # loss = classification_loss + lambda_cam * cam_loss
-lambda_cam: 15.0
+lambda_cam: 0.0
 lambda_cam_warmup_epochs: 15   
 lambda_cam_start: 0.0
 lambda_cam_warmup_power: 7.0 
@@ -34,31 +38,15 @@ lambda_cam_warmup_power: 7.0
 outside_weight: 1.0
 inside_weight: 1.0
 
-# Which CAM loss to use.
-#
-#   softmax  CAMSoftmaxMaskLoss -- p = softmax(cam/T) over the CAM grid, then
-#            loss = sum(p * outside). Bounded [0,1], gradient at every cell,
-#            invariant to the CAM's absolute level.
-#   ratio    CAMMaskLoss -- the relu-gated energy ratio. Kept so earlier runs
-#            reproduce. It returns a perfect 0 whenever the whole CAM is
-#            negative, which is a minimum a GAP+CE classifier drifts into on
-#            its own, taking the loss's gradient with it.
-#
-# Both score a flat CAM at mean(outside) and a perfect one at min(outside),
-# so diagnostics/cam_metrics.csv compares the two directly.
-cam_loss_type: "softmax"
 
-# Softmax sharpness. Lower = peakier p (toward a soft pointing game),
-# higher = flatter p (toward the constant mean(outside), no signal).
-# Watch softmax_entropy_norm in the diagnostics: aim well inside (0.15, 0.98).
+cam_loss_type: "containment_pointing"
+
 cam_softmax_temperature: 1.0
 
 # just specify one of these two parameters, not both. If both are null, use all training samples.
 train_shots_per_class: 16  
 train_fraction: null         
 
-# Debugging: after training, run the model on the held-out test set and
-# save CAM overlays for the worst (highest-loss) predictions.
 cam_debug: true
 cam_debug_top_k: 20
 
@@ -69,25 +57,15 @@ cam_debug_top_k: 20
 # ---------------------------------------------------------------------
 diagnostics: true
 
-# Audits the SAM pseudo-masks before training starts: class-name matching,
-# manifest exclusions, missing files, 0/1-vs-0/255 pixel scale, coverage,
-# mask polarity, and the containment values that are physically achievable
-# on the CAM grid. Read diagnostics/mask_audit.md first when a run looks odd.
 mask_audit: true
 mask_audit_max_decoded: 600   # masks actually opened per split; null = all
 mask_audit_examples: 12
 
-# Per-epoch CAM statistics: absolute background activation next to the
-# containment ratio, plus the flat-CAM and perfect-CAM baselines.
 cam_stats: true
 
-# Backprops the CE and CAM terms separately (without stepping) to compare
-# their gradient magnitudes and check whether they conflict.
 grad_probe: true
 grad_probe_batches: 3
 
-# The same validation images rendered every epoch, so the CAM's evolution
-# is visible rather than inferred.
 cam_snapshots: true
 cam_snapshots_count: 8
 cam_snapshots_every: 1
@@ -102,8 +80,8 @@ mask_manifests:
   cat: "sam_pseudo_masks_cat/manifest_cat_masks.csv"
   dog: "sam_pseudo_masks_dog/manifest_dog_masks.csv"
 
-model_type: "adapter"    # with conv adapter
+model_type: "adapter"    
 
-adapter_gamma: 4
+adapter_gamma: 2
 adapter_kernel_size: 3
 freeze_backbone: true
