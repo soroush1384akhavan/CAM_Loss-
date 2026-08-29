@@ -339,6 +339,9 @@ def run_training(
                 run_dir=run_dir,
                 num_samples=int(config.get("cam_snapshots_count", 8)),
                 seed=int(config.get("seed", 42)),
+                normalize_mean=config.get("normalize_mean", (0.485, 0.456, 0.406)),
+                normalize_std=config.get("normalize_std", (0.229, 0.224, 0.225)),
+                cam_loss_type=config.get("cam_loss_type", "containment"),
             )
 
     softmax_temperature = float(config.get("cam_softmax_temperature", 1.0))
@@ -596,6 +599,8 @@ def run_training(
             run_dir=run_dir,
             top_k=int(config.get("cam_debug_top_k", 20)),
             cam_iou_threshold=float(config.get("cam_debug_iou_threshold", 0.5)),
+            normalize_mean=config.get("normalize_mean", (0.485, 0.456, 0.406)),
+            normalize_std=config.get("normalize_std", (0.229, 0.224, 0.225)),
         )
 
     if diagnostics_enabled:

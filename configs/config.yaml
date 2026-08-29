@@ -1,76 +1,70 @@
 seed: 42
 
+# Linux server paths
 # data_dir: "/media/vision/ShareStorage-2/soroush/CVLab/cars_dataset/cars_dataset"
 # mask_root: "/media/vision/ShareStorage-2/soroush/CVLab/masks/sam_pseudo_masks_cars"
 
+# Windows paths
 data_dir: "D:/CVLab/temp/SAM/cars_dataset"
 mask_root: "D:/CVLab/temp/SAM/sam_pseudo_masks_cars"
 
 image_size: 224
-batch_size: 16
+normalize_mean: [0.5, 0.5, 0.5]
+normalize_std: [0.5, 0.5, 0.5]
+attack_normalize_mean: [0.5, 0.5, 0.5]
+attack_normalize_std: [0.5, 0.5, 0.5]
+batch_size: 8
 val_ratio: 0.2
 test_ratio: 0.1
 num_workers: 0
 
+model_type: "adapter_bit"
 pretrained: true
+bit_weights_path: "weights/model.safetensors"
+adapter_gamma: 8
+adapter_kernel_size: 3
+freeze_backbone: true
 
-epochs: 20
-learning_rate: 0.0001
+epochs: 50
+learning_rate: 0.0003
 weight_decay: 0.0001
-
 scheduler: "cosine"
 eta_min: 0.000001
+use_amp: true
 
-use_amp: false
 early_stopping: true
-early_stopping_monitor: val_acc     # val_loss / train_loss / train_acc
-early_stopping_patience: 10
-early_stopping_min_delta: 0.0
+early_stopping_monitor: "val_loss"
+early_stopping_patience: 12
+early_stopping_min_delta: 0.0001
 
-
-# Total loss:
 # loss = classification_loss + lambda_cam * cam_loss
 lambda_cam: 0.0
-lambda_cam_warmup_epochs: 15   
 lambda_cam_start: 0.0
-lambda_cam_warmup_power: 7.0 
-
+lambda_cam_warmup_epochs: 10
+lambda_cam_warmup_power: 2.0
+cam_loss_type: "softmax_containment"
+cam_softmax_temperature: 1.0
 outside_weight: 1.0
 inside_weight: 1.0
 
+# Set only one of these two options.
+train_shots_per_class: 16
+train_fraction: null
 
-cam_loss_type: "containment_pointing"
-
-cam_softmax_temperature: 1.0
-
-# just specify one of these two parameters, not both. If both are null, use all training samples.
-train_shots_per_class: 16  
-train_fraction: null         
-
-cam_debug: true
-cam_debug_top_k: 20
-
-# ---------------------------------------------------------------------
-# Diagnostics. Everything below only observes the run and writes files to
-# <run_dir>/diagnostics/ ; none of it changes training. Set `diagnostics`
-# to false to turn the whole thing off.
-# ---------------------------------------------------------------------
 diagnostics: true
-
 mask_audit: true
-mask_audit_max_decoded: 600   # masks actually opened per split; null = all
+mask_audit_max_decoded: 600
 mask_audit_examples: 12
-
 cam_stats: true
-
 grad_probe: true
 grad_probe_batches: 3
-
 cam_snapshots: true
 cam_snapshots_count: 8
 cam_snapshots_every: 1
+cam_debug: true
+cam_debug_top_k: 20
 
-output_dir: "outputs_resnet18_WOPT_WOCL_AnnealingLR_Epoch20_LR0.0001_WD0.0001_lambdaCAM0.5_MAXNORM"
+runs_dir: "runs/bitm_r50x1_adapter_g8_16shot_cam005"
 
 mask_dirs:
   cat: "sam_pseudo_masks_cat/masks"
@@ -79,9 +73,3 @@ mask_dirs:
 mask_manifests:
   cat: "sam_pseudo_masks_cat/manifest_cat_masks.csv"
   dog: "sam_pseudo_masks_dog/manifest_dog_masks.csv"
-
-model_type: "adapter"    
-
-adapter_gamma: 2
-adapter_kernel_size: 3
-freeze_backbone: true
