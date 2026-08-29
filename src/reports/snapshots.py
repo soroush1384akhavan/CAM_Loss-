@@ -8,13 +8,11 @@ collapsing to a single cell, the background quietly staying positive.
 
 Each row is:
 
-    image | mask | CAM (min-max) | sign map | overlay + mask outline
+    image | mask | predicted CAM | predicted overlay | true CAM | true overlay
 
-The sign map matters more than it looks. `CAMMaskLoss` applies `relu` before
-measuring energy, so any cell that is already negative contributes nothing and
-receives exactly zero gradient from the CAM term, while GAP still pulls it back
-up through the classification loss. Red/blue tells you at a glance which parts
-of the background the CAM loss can still influence.
+The diverging CAM maps keep the sign visible: red is positive, white is zero,
+and blue is negative. ReLU-based containment losses ignore negative cells,
+while spatial-softmax containment remains active on them.
 """
 
 from __future__ import annotations
@@ -26,6 +24,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from PIL import Image, ImageDraw
+
+from src.reports.cam_viz import signed_cam_overlay
 
 IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
 IMAGENET_STD = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
@@ -45,21 +45,10 @@ def _get_font():
         return None
 
 
-def _denormalize(image: torch.Tensor) -> np.ndarray:
-    img = image.detach().cpu() * IMAGENET_STD + IMAGENET_MEAN
+def _denormalize(image: torch.Tensor, mean=IMAGENET_MEAN, std=IMAGENET_STD) -> np.ndarray:
+    img = image.detach().cpu() * std + mean
     img = img.clamp(0, 1)
     return (img.permute(1, 2, 0).numpy() * 255).astype(np.uint8)
-
-
-def _jet(values01: np.ndarray) -> np.ndarray:
-    try:
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.cm as cm
-        return (cm.jet(values01)[:, :, :3] * 255).astype(np.uint8)
-    except ImportError:
-        gray = (values01 * 255).astype(np.uint8)
-        return np.stack([gray, np.zeros_like(gray), 255 - gray], axis=2)
 
 
 def _upsample(cam: torch.Tensor, size: int) -> np.ndarray:
@@ -70,20 +59,6 @@ def _upsample(cam: torch.Tensor, size: int) -> np.ndarray:
         align_corners=False,
     )
     return resized[0, 0].cpu().numpy()
-
-
-def _sign_map(cam_full: np.ndarray) -> np.ndarray:
-    """Red where the CAM is positive, blue where it is negative."""
-    scale = float(np.abs(cam_full).max()) + 1e-6
-    normalized = np.clip(cam_full / scale, -1.0, 1.0)
-
-    out = np.zeros((*cam_full.shape, 3), dtype=np.float32)
-    positive = np.clip(normalized, 0, 1)
-    negative = np.clip(-normalized, 0, 1)
-    out[:, :, 0] = 40 + 215 * positive
-    out[:, :, 2] = 40 + 215 * negative
-    out[:, :, 1] = 40 * (1 - positive - negative)
-    return out.clip(0, 255).astype(np.uint8)
 
 
 def _mask_boundary(binary: np.ndarray) -> np.ndarray:
@@ -116,6 +91,9 @@ class CAMSnapshotter:
         max_scan_batches: int = 50,
         overlay_gamma: float = 0.6,
         overlay_alpha_gain: float = 1.5,
+        normalize_mean=(0.485, 0.456, 0.406),
+        normalize_std=(0.229, 0.224, 0.225),
+        cam_loss_type="containment",
     ):
         self.device = device
         self.classes = list(classes)
@@ -125,6 +103,9 @@ class CAMSnapshotter:
 
         self.overlay_gamma = overlay_gamma
         self.overlay_alpha_gain = overlay_alpha_gain
+        self.normalize_mean = torch.tensor(normalize_mean).view(3, 1, 1)
+        self.normalize_std = torch.tensor(normalize_std).view(3, 1, 1)
+        self.cam_loss_type = str(cam_loss_type).lower()
 
         if loader is None or num_samples <= 0:
             return
@@ -178,14 +159,20 @@ class CAMSnapshotter:
             labels = torch.tensor(
                 [s["label"] for s in self.samples], device=self.device, dtype=torch.long
             )
-            _, cams = model(images)
+            logits, cams = model(images)
             cams = cams.detach().float()
             target_cams = cams[torch.arange(len(self.samples), device=cams.device), labels]
+            pred_labels = logits.argmax(dim=1)
+            pred_cams = cams[torch.arange(len(self.samples), device=cams.device), pred_labels]
         finally:
             model.train(was_training)
 
-        rows = [self._render_row(sample, target_cams[i].cpu())
-                for i, sample in enumerate(self.samples)]
+        rows = [
+            self._render_row(
+                sample, target_cams[i].cpu(), pred_cams[i].cpu(), int(pred_labels[i].item())
+            )
+            for i, sample in enumerate(self.samples)
+        ]
 
         width = max(row.shape[1] for row in rows)
         padded = [
@@ -199,47 +186,52 @@ class CAMSnapshotter:
         Image.fromarray(grid).save(path)
         return str(path)
 
-    def _render_row(self, sample: dict, cam: torch.Tensor) -> np.ndarray:
-        image_np = _denormalize(sample["image"])
+    def _render_row(
+        self, sample: dict, true_cam: torch.Tensor, pred_cam: torch.Tensor, pred_label: int
+    ) -> np.ndarray:
+        image_np = _denormalize(sample["image"], self.normalize_mean, self.normalize_std)
         size = image_np.shape[0]
 
         mask_np = sample["mask"][0].cpu().numpy()
         binary = (mask_np > 0.5).astype(np.float32)
 
-        cam_full = _upsample(cam, size)
-
-        span = cam_full.max() - cam_full.min()
-        cam_norm = (cam_full - cam_full.min()) / (span + 1e-6)
-        heat = _jet(cam_norm)
-
-
-        cam_shaped = np.clip(cam_norm, 0.0, 1.0) ** self.overlay_gamma
-        alpha = np.clip(cam_shaped * self.overlay_alpha_gain, 0.0, 1.0)[:, :, None]
-        overlay = (alpha * heat + (1 - alpha) * image_np).astype(np.uint8)
-
         boundary = _mask_boundary(binary)
-        overlay[boundary] = np.array([0, 255, 0], dtype=np.uint8)
+        true_full = _upsample(true_cam, size)
+        pred_full = _upsample(pred_cam, size)
+        scale = max(float(np.abs(true_full).max()), float(np.abs(pred_full).max()), 1e-6)
+        max_alpha = min(0.5, max(0.2, 0.28 * self.overlay_alpha_gain))
+        true_heat, true_overlay, _ = signed_cam_overlay(
+            image_np, true_full, boundary, max_alpha=max_alpha, gamma=self.overlay_gamma, scale=scale
+        )
+        pred_heat, pred_overlay, _ = signed_cam_overlay(
+            image_np, pred_full, boundary, max_alpha=max_alpha, gamma=self.overlay_gamma, scale=scale
+        )
 
         mask_tile = np.repeat((binary * 255).astype(np.uint8)[:, :, None], 3, axis=2)
 
         tiles = [
             _with_header(image_np, "input", self.font),
             _with_header(mask_tile, "mask (white = object)", self.font),
-            _with_header(heat, "CAM (min-max)", self.font),
-            _with_header(_sign_map(cam_full), "sign (red +, blue -)", self.font),
-            _with_header(overlay, "overlay + mask outline", self.font),
+            _with_header(pred_heat, "pred CAM [+red / 0-white / -blue]", self.font),
+            _with_header(pred_overlay, "pred overlay", self.font),
+            _with_header(true_heat, "true CAM [+red / 0-white / -blue]", self.font),
+            _with_header(true_overlay, "true overlay", self.font),
         ]
         row = np.concatenate(tiles, axis=1)
-        return np.concatenate([row, self._caption(sample, cam, binary, row.shape[1])], axis=0)
+        return np.concatenate([
+            row, self._caption(sample, true_cam, pred_cam, pred_label, binary, row.shape[1])
+        ], axis=0)
 
     def _caption(
         self,
         sample: dict,
-        cam: torch.Tensor,
+        true_cam: torch.Tensor,
+        pred_cam: torch.Tensor,
+        pred_label: int,
         binary: np.ndarray,
         width: int,
     ) -> np.ndarray:
-        hc, wc = cam.shape
+        hc, wc = true_cam.shape
         mask_cam = F.interpolate(
             torch.from_numpy(binary).unsqueeze(0).unsqueeze(0).float(),
             size=(hc, wc),
@@ -248,7 +240,7 @@ class CAMSnapshotter:
 
         inside = mask_cam
         outside = 1.0 - mask_cam
-        positive = F.relu(cam)
+        positive = F.relu(true_cam)
 
         energy_out = float((positive * outside).sum())
         energy_in = float((positive * inside).sum())
@@ -258,20 +250,23 @@ class CAMSnapshotter:
         mean_pos_out = energy_out / (float(outside.sum()) + 1e-6)
         mean_pos_in = energy_in / (float(inside.sum()) + 1e-6)
 
-        class_name = self.classes[sample["label"]] if sample["label"] < len(self.classes) else "?"
+        true_name = self.classes[sample["label"]] if sample["label"] < len(self.classes) else "?"
+        pred_name = self.classes[pred_label] if pred_label < len(self.classes) else "?"
 
-        # A CAM that is negative everywhere scores containment = 0/eps = 0: a
-        # perfect loss from an empty map. Say so, rather than letting the
-        # min-max panel make it look like a localised heatmap.
-        collapsed = float(cam.max()) <= 0.0
-        warning = "  <<< CAM ENTIRELY NEGATIVE: loss is 0 for free" if collapsed else ""
+        collapsed = float(true_cam.max()) <= 0.0
+        warning = ""
+        if collapsed:
+            warning = "  <<< CAM ENTIRELY NEGATIVE: ReLU metric is blind"
+            if self.cam_loss_type == "softmax_containment":
+                warning += "; softmax loss is still active"
 
         line_1 = (
-            f"{Path(sample['path']).name}  |  class={class_name}  |  "
-            f"containment={containment:.3f} (flat baseline={uniform:.3f}){warning}"
+            f"{Path(sample['path']).name}  |  true={true_name}  pred={pred_name}  |  "
+            f"relu_containment={containment:.3f} (flat baseline={uniform:.3f}){warning}"
         )
         line_2 = (
-            f"CAM range=[{float(cam.min()):+.3f}, {float(cam.max()):+.3f}]  |  "
+            f"true range=[{float(true_cam.min()):+.3f}, {float(true_cam.max()):+.3f}]  "
+            f"pred range=[{float(pred_cam.min()):+.3f}, {float(pred_cam.max()):+.3f}]  |  "
             f"mean positive: object={mean_pos_in:.4f} background={mean_pos_out:.4f}  |  "
             f"mask coverage={float(inside.mean()):.3f}"
         )
