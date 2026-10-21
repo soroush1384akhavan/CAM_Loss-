@@ -1,6 +1,7 @@
 from pathlib import Path
 import argparse
 import csv
+import sys
 
 import cv2
 import yaml
@@ -10,13 +11,10 @@ import numpy as np
 from PIL import Image, ImageDraw
 from tqdm import tqdm
 
-from data import get_dataloaders
-from model import ResNet18CAM
-from losses import build_all_cams
-
-
-IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
-IMAGENET_STD = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from src.data import get_dataloaders
+from src.model_factory import build_model
+from src.normalization import configure_normalization, denormalize_images, validate_checkpoint_normalization
 
 
 def load_config(path):
@@ -24,8 +22,9 @@ def load_config(path):
         return yaml.safe_load(f)
 
 
-def load_checkpoint(model, checkpoint_path, device):
+def load_checkpoint(model, checkpoint_path, device, normalization):
     ckpt = torch.load(checkpoint_path, map_location=device)
+    validate_checkpoint_normalization(ckpt, *normalization)
 
     if isinstance(ckpt, dict):
         if "model_state_dict" in ckpt:
@@ -42,13 +41,13 @@ def load_checkpoint(model, checkpoint_path, device):
     return model
 
 
-def denormalize_image(x):
+def denormalize_image(x, mean, std):
     """
     x: [3, H, W], normalized tensor
     return: uint8 RGB image [H, W, 3]
     """
     x = x.detach().cpu()
-    x = x * IMAGENET_STD + IMAGENET_MEAN
+    x = denormalize_images(x, mean, std)
     x = x.clamp(0, 1)
     img = x.permute(1, 2, 0).numpy()
     img = (img * 255).astype(np.uint8)
@@ -68,12 +67,7 @@ def get_target_cam(model, image, label, device):
     label: scalar tensor [1]
     return: CAM [H, W] normalized 0..1
     """
-    logits, features = model(image)
-
-    cams = build_all_cams(
-        features=features,
-        classifier_weight=model.fc.weight,
-    )
+    logits, cams = model(image)
 
     # cams: [1, num_classes, Hc, Wc]
     target_cam = cams[0, label.item()]  # [Hc, Wc]
@@ -176,6 +170,7 @@ def main():
     args = parser.parse_args()
 
     config = load_config(args.config)
+    mean, std = configure_normalization(config)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print("Device:", device)
@@ -186,31 +181,27 @@ def main():
     vis_dir = out_dir / "visualizations"
     vis_dir.mkdir(parents=True, exist_ok=True)
 
-    _, val_loader, classes = get_dataloaders(
+    _, val_loader, _, classes = get_dataloaders(
         data_dir=config["data_dir"],
         image_size=config.get("image_size", 224),
         batch_size=1,
         val_ratio=config.get("val_ratio", 0.2),
         seed=config.get("seed", 42),
         num_workers=0,
+        normalize_mean=mean,
+        normalize_std=std,
         mask_dirs=config.get("mask_dirs", {}),
         mask_manifests=config.get("mask_manifests", {}),
     )
 
     print("Classes:", classes)
 
-    baseline_model = ResNet18CAM(
-        num_classes=len(classes),
-        pretrained=False,
-    ).to(device)
+    model_config = dict(config, pretrained=False)
+    baseline_model = build_model(model_config, num_classes=len(classes)).to(device)
+    cam_model = build_model(model_config, num_classes=len(classes)).to(device)
 
-    cam_model = ResNet18CAM(
-        num_classes=len(classes),
-        pretrained=False,
-    ).to(device)
-
-    baseline_model = load_checkpoint(baseline_model, args.baseline, device)
-    cam_model = load_checkpoint(cam_model, args.cam_model, device)
+    baseline_model = load_checkpoint(baseline_model, args.baseline, device, (mean, std))
+    cam_model = load_checkpoint(cam_model, args.cam_model, device, (mean, std))
 
     metrics_path = out_dir / "cam_alignment_metrics.csv"
 
@@ -230,7 +221,7 @@ def main():
 
         class_name = classes[label.item()]
 
-        image_rgb = denormalize_image(batch["image"][0])
+        image_rgb = denormalize_image(batch["image"][0], mean, std)
 
         baseline_cam = get_target_cam(
             model=baseline_model,

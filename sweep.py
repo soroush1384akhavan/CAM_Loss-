@@ -9,6 +9,7 @@ import yaml
 from src.data import get_dataloaders
 from src.losses import build_cam_loss
 from src.model_factory import build_model
+from src.normalization import configure_normalization
 from src.train import run_training
 from src.utils import get_device, set_seed
 from src.mask_config_utils import build_mask_config
@@ -30,6 +31,7 @@ def load_base_config():
 
 def run_single(base_config: dict, shots: int, lam: float, repeat: int):
     config = dict(base_config)
+    configure_normalization(config)
     config["train_shots_per_class"] = shots
     config["train_fraction"] = None
     config["lambda_cam"] = lam
@@ -67,6 +69,8 @@ def run_single(base_config: dict, shots: int, lam: float, repeat: int):
         val_ratio=config.get("val_ratio", 0.2),
         seed=seed,
         num_workers=config.get("num_workers", 0),
+        normalize_mean=config["normalize_mean"],
+        normalize_std=config["normalize_std"],
         mask_dirs=config.get("mask_dirs", {}),
         mask_manifests=config.get("mask_manifests", {}),
         test_ratio=config.get("test_ratio", 0.1),

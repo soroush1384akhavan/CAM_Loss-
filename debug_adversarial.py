@@ -12,6 +12,7 @@ from src.adversarial import (
 from src.data import get_dataloaders
 from src.utils import get_device
 from src.model_factory import build_model
+from src.normalization import configure_normalization, validate_checkpoint_normalization
 
 
 CONFIG_PATH = Path("configs/config.yaml")
@@ -19,6 +20,8 @@ config_path = Path(CONFIG_PATH)
 
 with open(config_path, "r", encoding="utf-8") as file:
     config = yaml.safe_load(file)
+
+mean, std = configure_normalization(config)
 
 device = get_device()
 
@@ -30,6 +33,8 @@ train_loader, val_loader, test_loader, classes = get_dataloaders(
     val_ratio=config.get("val_ratio", 0.2),
     seed=config.get("seed", 42),
     num_workers=config.get("num_workers", 0),
+    normalize_mean=mean,
+    normalize_std=std,
     mask_dirs=config.get("mask_dirs", {}),
     mask_manifests=config.get("mask_manifests", {}),
     test_ratio=config.get("test_ratio", 0.1),
@@ -71,6 +76,7 @@ if CHECKPOINT_PATH is None:
 
 print(f"Loading checkpoint: {CHECKPOINT_PATH}")
 checkpoint = torch.load(CHECKPOINT_PATH, map_location=device)
+validate_checkpoint_normalization(checkpoint, mean, std)
 
 
 def _extract_state_dict(checkpoint):
@@ -116,9 +122,6 @@ batch = next(iter(test_loader))
 images, labels = unpack_batch(batch)
 images = images.to(device)
 labels = labels.to(device)
-
-mean = [0.485, 0.456, 0.406]
-std = [0.229, 0.224, 0.225]
 
 print("\n--- sanity check ---")
 print("images raw stats:", images.min().item(), images.max().item(), images.mean().item())

@@ -8,11 +8,16 @@ seed: 42
 data_dir: "D:/CVLab/temp/SAM/cars_dataset"
 mask_root: "D:/CVLab/temp/SAM/sam_pseudo_masks_cars"
 
+# pets Dataset paths
+# mask_root: "D:/CVLab/temp/SAM/sam_pseudo_masks_pets"
+# data_dir: "D:/CVLab/temp/SAM/organized_pets/dataset"
+
+
 image_size: 224
+# RGB pixels are divided by 255 first. These values apply to every split,
+# CAM image reconstruction, and pixel-space attacks. BiT expects [-1, 1].
 normalize_mean: [0.5, 0.5, 0.5]
 normalize_std: [0.5, 0.5, 0.5]
-attack_normalize_mean: [0.5, 0.5, 0.5]
-attack_normalize_std: [0.5, 0.5, 0.5]
 batch_size: 8
 val_ratio: 0.2
 test_ratio: 0.1
@@ -34,15 +39,15 @@ use_amp: true
 
 early_stopping: true
 early_stopping_monitor: "val_loss"
-early_stopping_patience: 12
+early_stopping_patience: 8
 early_stopping_min_delta: 0.0001
 
 # loss = classification_loss + lambda_cam * cam_loss
-lambda_cam: 0.0
+lambda_cam: 0.5
 lambda_cam_start: 0.0
 lambda_cam_warmup_epochs: 10
 lambda_cam_warmup_power: 2.0
-cam_loss_type: "softmax_containment"
+cam_loss_type: "allclass_squared_containment"
 cam_softmax_temperature: 1.0
 outside_weight: 1.0
 inside_weight: 1.0

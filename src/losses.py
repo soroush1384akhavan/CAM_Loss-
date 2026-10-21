@@ -76,6 +76,118 @@ class CAMContainmentLoss(nn.Module):
         # return mean
         return loss.sum() / (has_mask.sum() + self.eps)
 
+
+class CAMSquaredContainmentLoss(nn.Module):
+    def __init__(
+        self,
+        outside_weight=1.0,
+        inside_weight=1.0,
+        eps=1e-6,
+    ):
+        super().__init__()
+
+        self.outside_weight = outside_weight
+        self.inside_weight = inside_weight  # unused; kept for call-site compatibility
+        self.eps = eps
+
+    def forward(
+        self,
+        cams: torch.Tensor,
+        mask: torch.Tensor,
+        labels: torch.Tensor,
+        has_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        has_mask = has_mask.float()
+
+        if has_mask.sum() == 0:
+            return cams.sum() * 0.0
+
+        batch_size = cams.shape[0]
+        batch_idx = torch.arange(batch_size, device=cams.device)
+        target_cam = cams[batch_idx, labels].unsqueeze(1)
+
+        if mask.shape[-2:] != target_cam.shape[-2:]:
+            mask = F.interpolate(mask.float(), size=target_cam.shape[-2:], mode="area")
+
+        outside = 1.0 - mask.float()
+        energy = target_cam.square()
+        energy_outside = (energy * outside).sum(dim=(1, 2, 3))
+        energy_total = energy.sum(dim=(1, 2, 3)) + self.eps
+
+        containment = energy_outside / energy_total
+        loss = self.outside_weight * containment * has_mask
+
+        return loss.sum() / (has_mask.sum() + self.eps)
+
+
+class CAMAllClassSquaredContainmentLoss(nn.Module):
+    def __init__(
+        self,
+        outside_weight=1.0,
+        eps=1e-6,
+    ):
+        super().__init__()
+        self.outside_weight = outside_weight
+        self.eps = eps
+
+    def forward(
+        self,
+        cams: torch.Tensor,      # [B, K, H, W]
+        mask: torch.Tensor,      # [B, 1, Hm, Wm]
+        labels: torch.Tensor,    # kept for API compatibility
+        has_mask: torch.Tensor,  # [B]
+    ) -> torch.Tensor:
+
+        has_mask = has_mask.float()
+
+        if has_mask.sum() == 0:
+            return cams.sum() * 0.0
+
+        B, K, H, W = cams.shape
+
+        if mask.shape[-2:] != (H, W):
+            mask = F.interpolate(
+                mask.float(),
+                size=(H, W),
+                mode="area"
+            )
+
+        # [B, 1, H, W]
+        outside = 1.0 - mask.float()
+
+        # [B, K, H, W]
+        energy = cams.square()
+
+        # broadcast outside over K classes
+        # -> [B, K]
+        energy_outside = (
+            energy * outside
+        ).sum(dim=(2, 3))
+
+        # [B, K]
+        energy_total = (
+            energy.sum(dim=(2, 3)) + self.eps
+        )
+
+        # containment for every class
+        # [B, K]
+        containment = energy_outside / energy_total
+
+        # Average over classes
+        # [B]
+        per_sample_loss = containment.mean(dim=1)
+
+        per_sample_loss = (
+            self.outside_weight
+            * per_sample_loss
+            * has_mask
+        )
+
+        return (
+            per_sample_loss.sum()
+            / (has_mask.sum() + self.eps)
+        )
+
 class CAMContainmentPointingLoss(nn.Module):
     def __init__(self, outside_weight=1.0, inside_weight=1.0, margin=0.0, eps=1e-6):
         super().__init__()
@@ -114,9 +226,6 @@ class CAMContainmentPointingLoss(nn.Module):
         # max_inside = masked_inside.max(dim=1).values
         # max_outside = masked_outside.max(dim=1).values
 
-        # # اگه max بیرون از max داخل (به‌علاوه‌ی مارجین) بیشتر بود، جریمه بده.
-        # # وقتی max داخل به‌وضوح بالاتره، گرادیان صفره — مدل آزاده هر شکلی
-        # # که می‌خواد داخل mask داشته باشه، فقط قله باید همون‌جا بمونه.
         # pointing_penalty = F.relu(max_outside - max_inside + self.margin)
 
         loss = (
@@ -186,6 +295,8 @@ class CAMSoftmaxContainmentLoss(nn.Module):
 
 CAM_LOSS_REGISTRY = {
     "containment": CAMContainmentLoss,
+    "squared_containment": CAMSquaredContainmentLoss,
+    "allclass_squared_containment": CAMAllClassSquaredContainmentLoss,
     "containment_pointing": CAMContainmentPointingLoss,
     "softmax_containment": CAMSoftmaxContainmentLoss,
 }
@@ -210,6 +321,18 @@ def build_cam_loss(config: dict) -> nn.Module:
             outside_weight=outside_weight,
             inside_weight=inside_weight,
         )
+
+    if loss_type == "squared_containment":
+        return CAMSquaredContainmentLoss(
+            outside_weight=outside_weight,
+            inside_weight=inside_weight,
+        )
+        
+    if loss_type == "allclass_squared_containment":
+        return CAMAllClassSquaredContainmentLoss(
+            outside_weight = outside_weight,
+        )
+    
 
     if loss_type == "containment_pointing":
         return CAMContainmentPointingLoss(

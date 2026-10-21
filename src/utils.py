@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from src.normalization import validate_checkpoint_normalization
 
 
 def set_seed(seed: int = 42):
@@ -14,6 +15,7 @@ def set_seed(seed: int = 42):
 
 def get_device():
     return "cuda" if torch.cuda.is_available() else "cpu"
+    # return "cpu"
 
 
 def save_checkpoint(model, optimizer, epoch, classes, path: str, extra: dict = None):
@@ -40,13 +42,15 @@ def latest_checkpoint_path(checkpoint_dir="runs", pattern="best_*.pth"):
     latest_checkpoint = max(checkpoints, key=lambda p: p.stat().st_mtime)
     return latest_checkpoint
     
-def load_checkpoint(model, optimizer=None, device=None):
+def load_checkpoint(model, optimizer=None, device=None, normalization=None):
     path = latest_checkpoint_path()
     
     # path = r"D:\CVLab\mainProj\runs\2026-08-27_14-22-37\best_resnet18_cam.pth"
 
     
     checkpoint = torch.load(path, map_location=device)
+    if normalization is not None:
+        validate_checkpoint_normalization(checkpoint, *normalization)
     model.load_state_dict(checkpoint["model_state_dict"])
 
     if optimizer is not None and "optimizer_state_dict" in checkpoint:
