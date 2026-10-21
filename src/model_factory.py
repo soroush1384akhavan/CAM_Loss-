@@ -48,6 +48,7 @@ def build_model(config: dict, num_classes: int):
             gamma=int(config.get("adapter_gamma", 4)),
             adapter_kernel_size=int(config.get("adapter_kernel_size", 3)),
             freeze_backbone=bool(config.get("freeze_backbone", True)),
+            center_cams=bool(config.get("center_cams", False)),
         )
 
     raise RuntimeError("unreachable")

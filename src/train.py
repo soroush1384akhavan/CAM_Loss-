@@ -127,6 +127,14 @@ def _lambda_cam_for_epoch(epoch: int, target_lambda_cam: float, config: dict) ->
     progress = (epoch / warmup_epochs) ** warmup_power
     return start_lambda_cam + (target_lambda_cam - start_lambda_cam) * progress
 
+def _monitor_value(monitor: str, train_metrics: dict, val_metrics: dict):
+    """'val_cls_loss' -> val_metrics['cls_loss']; same for a 'train_' prefix."""
+    for prefix, metrics in (("val_", val_metrics), ("train_", train_metrics)):
+        if monitor.startswith(prefix):
+            return metrics.get(monitor[len(prefix):])
+    return None
+
+
 def _plot_learning_curve(history, save_path):
     try:
         import matplotlib
@@ -361,6 +369,9 @@ def run_training(
 
     log_path = run_dir / "training_log.csv"
     best_val_acc = 0.0
+    best_checkpoint_path = run_dir / "best_resnet18_cam.pth"
+    selected_epoch = None
+    lambda_warmup_epochs = int(config.get("lambda_cam_warmup_epochs", 0))
 
     early_stopping_enabled = bool(config.get("early_stopping", False))
     early_stopping_monitor = str(config.get("early_stopping_monitor", "val_acc"))
@@ -533,72 +544,84 @@ def run_training(
                 },
             )
 
-            if val_metrics["acc"] > best_val_acc:
-                best_val_acc = val_metrics["acc"]
+            best_val_acc = max(best_val_acc, val_metrics["acc"])
+            last_epoch_ran = epoch
+
+            # One monitor drives both checkpoint selection and early stopping.
+            # A "val_loss" monitor includes lambda * cam_loss, which grows with
+            # the lambda warm-up on its own; prefer "val_cls_loss" or "val_acc".
+            monitor_value = _monitor_value(early_stopping_monitor, train_metrics, val_metrics)
+            if monitor_value is None:
+                print(
+                    f"Warning: early_stopping_monitor='{early_stopping_monitor}' "
+                    f"not recognized, falling back to val_acc."
+                )
+                early_stopping_monitor = "val_acc"
+                early_stopping_mode = "max"
+                best_monitor_value = float("-inf")
+                monitor_value = val_metrics["acc"]
+
+            # Only epochs trained at the full lambda_cam are eligible, so the
+            # tested model is always one the CAM loss actually shaped.
+            selectable = epoch >= lambda_warmup_epochs
+
+            if early_stopping_mode == "max":
+                improved = monitor_value > (best_monitor_value + early_stopping_min_delta)
+            else:
+                improved = monitor_value < (best_monitor_value - early_stopping_min_delta)
+
+            if selectable and improved:
+                best_monitor_value = monitor_value
+                epochs_no_improve = 0
+                selected_epoch = epoch
 
                 save_checkpoint(
                     model=model,
                     optimizer=optimizer,
                     epoch=epoch,
                     classes=classes,
-                    path=run_dir / "best_resnet18_cam.pth",
+                    path=best_checkpoint_path,
                     extra={
-                        "val_acc": best_val_acc,
+                        "val_acc": val_metrics["acc"],
+                        "monitor": early_stopping_monitor,
+                        "monitor_value": monitor_value,
                         "input_normalization": input_normalization,
                         "lambda_cam": current_lambda_cam,
                         "lr": current_lr,
                     },
                 )
 
-                print(f"Best model saved. Val Acc: {best_val_acc:.4f}")
-
-            last_epoch_ran = epoch
+                print(
+                    f"Best model saved. {early_stopping_monitor}={monitor_value:.4f} "
+                    f"val_acc={val_metrics['acc']:.4f}"
+                )
+            elif selectable:
+                epochs_no_improve += 1
 
             if early_stopping_enabled:
-                monitor_value = val_metrics.get(
-                    early_stopping_monitor.replace("val_", "", 1), None
-                ) if early_stopping_monitor.startswith("val_") else None
-                if monitor_value is None:
-                    # Fallback: allow monitoring train metrics too (e.g. "train_loss").
-                    monitor_value = train_metrics.get(
-                        early_stopping_monitor.replace("train_", "", 1), None
-                    ) if early_stopping_monitor.startswith("train_") else None
+                print(
+                    f"EarlyStopping | monitor={early_stopping_monitor} "
+                    f"value={monitor_value:.4f} best={best_monitor_value:.4f} "
+                    f"no_improve={epochs_no_improve}/{early_stopping_patience}"
+                )
 
-                if monitor_value is None:
-                    print(
-                        f"Warning: early_stopping_monitor='{early_stopping_monitor}' "
-                        f"not recognized, disabling early stopping."
-                    )
-                    early_stopping_enabled = False
-                else:
-                    if early_stopping_mode == "max":
-                        improved = monitor_value > (best_monitor_value + early_stopping_min_delta)
-                    else:
-                        improved = monitor_value < (best_monitor_value - early_stopping_min_delta)
-
-                    if improved:
-                        best_monitor_value = monitor_value
-                        epochs_no_improve = 0
-                    else:
-                        epochs_no_improve += 1
-
-                    print(
-                        f"EarlyStopping | monitor={early_stopping_monitor} "
-                        f"value={monitor_value:.4f} best={best_monitor_value:.4f} "
-                        f"no_improve={epochs_no_improve}/{early_stopping_patience}"
-                    )
-
-                    if epochs_no_improve >= early_stopping_patience:
-                        stopped_early = True
-                        print(
-                            f"Early stopping triggered at epoch {epoch} "
-                            f"(no improvement in '{early_stopping_monitor}' "
-                            f"for {early_stopping_patience} epochs)."
-                        )
-                        break
+            if early_stopping_enabled and epochs_no_improve >= early_stopping_patience:
+                stopped_early = True
+                print(
+                    f"Early stopping triggered at epoch {epoch} "
+                    f"(no improvement in '{early_stopping_monitor}' "
+                    f"for {early_stopping_patience} epochs after the lambda warm-up)."
+                )
+                break
 
     _plot_learning_curve(history, run_dir / "learning_curve.png")
     analyze_loss_balance(history, run_dir)
+
+    # Test the selected checkpoint, not whatever the last epoch left behind.
+    if best_checkpoint_path.is_file():
+        best_state = torch.load(best_checkpoint_path, map_location=device, weights_only=False)
+        model.load_state_dict(best_state["model_state_dict"])
+        print(f"Loaded best checkpoint (epoch {best_state['epoch']}) for testing.")
 
     if test_loader is not None and bool(config.get("cam_debug", True)):
         run_cam_debug(
@@ -626,6 +649,7 @@ def run_training(
 
     print("Training finished.")
     print("Best val acc:", best_val_acc)
+    print(f"Selected checkpoint: epoch {selected_epoch} by {early_stopping_monitor}")
     print("Run directory:", run_dir)
     if stopped_early:
         print(f"Stopped early after epoch {last_epoch_ran}/{epochs}.")
@@ -636,6 +660,7 @@ def run_training(
         "history": history,
         "stopped_early": stopped_early,
         "last_epoch_ran": last_epoch_ran,
+        "selected_epoch": selected_epoch,
         "cam_rows": cam_rows,
         "mask_audit": mask_audit,
     }

@@ -7,6 +7,7 @@ from PIL import Image
 import torch
 from torch.utils.data import Dataset, DataLoader, Subset, random_split
 from torchvision import transforms, datasets
+from torchvision.transforms import functional as TF
 
 from src.normalization import IMAGENET_MEAN, IMAGENET_STD, validate_normalization
 
@@ -84,6 +85,8 @@ class ImageFolderWithClassMasks(Dataset):
         mask_manifests: Optional[dict] = None,
         normalize_mean=None,
         normalize_std=None,
+        augment_crop_scale=(0.7, 1.0),
+        augment_hflip: bool = True,
     ):
         self.data_dir = Path(data_dir)
         if not self.data_dir.exists():
@@ -95,6 +98,8 @@ class ImageFolderWithClassMasks(Dataset):
         self.normalize_mean, self.normalize_std = validate_normalization(normalize_mean, normalize_std)
         self.mask_dirs = _normalize_mapping(mask_dirs)
         self.mask_manifests = _normalize_mapping(mask_manifests)
+        self.augment_crop_scale = tuple(float(v) for v in augment_crop_scale)
+        self.augment_hflip = bool(augment_hflip)
 
         # Use ImageFolder only to build samples/classes/class_to_idx reliably.
         base_dataset = datasets.ImageFolder(
@@ -123,6 +128,13 @@ class ImageFolderWithClassMasks(Dataset):
                 std=self.normalize_std,
             ),
         ])
+        self.image_to_tensor = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(
+                mean=self.normalize_mean,
+                std=self.normalize_std,
+            ),
+        ])
 
         self.mask_transform = transforms.Compose([
             transforms.Resize(
@@ -142,43 +154,87 @@ class ImageFolderWithClassMasks(Dataset):
     def __len__(self):
         return len(self.samples)
 
-    def _load_mask(self, image_path: Path, label: int):
+    def _load_mask_image(self, image_path: Path, label: int) -> Optional[Image.Image]:
         class_name = self.classes[label]
         mask_dir = self.mask_dirs.get(class_name)
 
-        mask_tensor = torch.zeros(1, self.image_size, self.image_size)
-        has_mask = torch.tensor(0.0, dtype=torch.float32)
-
         if mask_dir is None:
-            return mask_tensor, has_mask
+            return None
 
         mask_path = mask_dir / f"{image_path.stem}.png"
         valid_stems = self.valid_mask_stems_by_class.get(class_name)
 
         # If manifest exists, require the stem to be valid in manifest.
         if valid_stems is not None and image_path.stem not in valid_stems:
-            return mask_tensor, has_mask
+            return None
 
         if not mask_path.exists():
+            return None
+
+        return Image.open(mask_path).convert("L")
+
+    def _mask_to_tensor(self, mask: Optional[Image.Image]):
+        mask_tensor = torch.zeros(1, self.image_size, self.image_size)
+        has_mask = torch.tensor(0.0, dtype=torch.float32)
+
+        if mask is None:
             return mask_tensor, has_mask
 
-        mask = Image.open(mask_path).convert("L")
-        mask_tensor = self.mask_transform(mask)
-        mask_tensor = (mask_tensor > 0.5).float()
+        mask_tensor = (TF.to_tensor(mask) > 0.5).float()
 
+        # A random crop can cut the object out entirely; such a sample then
+        # carries no mask supervision rather than an all-background one.
         if mask_tensor.sum() > 0:
             has_mask = torch.tensor(1.0, dtype=torch.float32)
 
         return mask_tensor, has_mask
 
-    def __getitem__(self, idx):
+    def _load_mask(self, image_path: Path, label: int):
+        mask = self._load_mask_image(image_path, label)
+        if mask is not None:
+            mask = TF.resize(
+                mask,
+                [self.image_size, self.image_size],
+                interpolation=transforms.InterpolationMode.NEAREST,
+            )
+        return self._mask_to_tensor(mask)
+
+    def _load_augmented(self, image: Image.Image, image_path: Path, label: int):
+        """Same random crop and flip on the image and its mask."""
+        size = [self.image_size, self.image_size]
+        mask = self._load_mask_image(image_path, label)
+        if mask is not None and mask.size != image.size:
+            mask = mask.resize(image.size, Image.NEAREST)
+
+        top, left, height, width = transforms.RandomResizedCrop.get_params(
+            image, scale=self.augment_crop_scale, ratio=(3 / 4, 4 / 3)
+        )
+        image = TF.resized_crop(image, top, left, height, width, size)
+        if mask is not None:
+            mask = TF.resized_crop(
+                mask, top, left, height, width, size,
+                interpolation=transforms.InterpolationMode.NEAREST,
+            )
+
+        if self.augment_hflip and torch.rand(1).item() < 0.5:
+            image = TF.hflip(image)
+            if mask is not None:
+                mask = TF.hflip(mask)
+
+        mask_tensor, has_mask = self._mask_to_tensor(mask)
+        return self.image_to_tensor(image), mask_tensor, has_mask
+
+    def load(self, idx, augment: bool = False):
         image_path_str, label = self.samples[idx]
         image_path = Path(image_path_str)
 
         image = Image.open(image_path).convert("RGB")
-        image_tensor = self.image_transform(image)
 
-        mask_tensor, has_mask = self._load_mask(image_path, label)
+        if augment:
+            image_tensor, mask_tensor, has_mask = self._load_augmented(image, image_path, label)
+        else:
+            image_tensor = self.image_transform(image)
+            mask_tensor, has_mask = self._load_mask(image_path, label)
 
         return {
             "image": image_tensor,
@@ -187,6 +243,16 @@ class ImageFolderWithClassMasks(Dataset):
             "has_mask": has_mask,
             "image_path": str(image_path),
         }
+
+    def __getitem__(self, idx):
+        return self.load(idx, augment=False)
+
+
+class AugmentedSubset(Subset):
+    """Training split: same indices as a Subset, loaded with joint augmentation."""
+
+    def __getitem__(self, idx):
+        return self.dataset.load(self.indices[idx], augment=True)
 
 
 def _subsample_train_indices(
@@ -247,6 +313,9 @@ def get_dataloaders(
     train_fraction: Optional[float] = None,
     normalize_mean=None,
     normalize_std=None,
+    train_augment: bool = False,
+    augment_crop_scale=(0.7, 1.0),
+    augment_hflip: bool = True,
 ):
 
     dataset = ImageFolderWithClassMasks(
@@ -256,6 +325,8 @@ def get_dataloaders(
         mask_manifests=mask_manifests,
         normalize_mean=normalize_mean,
         normalize_std=normalize_std,
+        augment_crop_scale=augment_crop_scale,
+        augment_hflip=augment_hflip,
     )
 
     total_size = len(dataset)
@@ -291,6 +362,13 @@ def get_dataloaders(
         )
         train_dataset = Subset(dataset, selected_indices)
         print(f"Training set size after subsampling: {len(train_dataset)}")
+
+    if train_augment:
+        train_dataset = AugmentedSubset(dataset, list(train_dataset.indices))
+        print(
+            f"Train augmentation: RandomResizedCrop(scale={tuple(augment_crop_scale)}) "
+            f"+ hflip={augment_hflip}, applied jointly to image and mask"
+        )
 
     train_loader = DataLoader(
         train_dataset,

@@ -29,6 +29,9 @@ bit_weights_path: "weights/model.safetensors"
 adapter_gamma: 8
 adapter_kernel_size: 3
 freeze_backbone: true
+# Subtract the per-cell mean over classes from the CAM. CE is unchanged by it;
+# without it the CAM loss can be met by a shared negative blob on the object.
+center_cams: true
 
 epochs: 50
 learning_rate: 0.0003
@@ -38,16 +41,21 @@ eta_min: 0.000001
 use_amp: true
 
 early_stopping: true
-early_stopping_monitor: "val_loss"
+# Drives both best-checkpoint selection and early stopping. "val_loss" includes
+# lambda * cam_loss and grows on its own during the lambda warm-up.
+early_stopping_monitor: "val_cls_loss"
 early_stopping_patience: 8
 early_stopping_min_delta: 0.0001
 
 # loss = classification_loss + lambda_cam * cam_loss
 lambda_cam: 0.5
 lambda_cam_start: 0.0
-lambda_cam_warmup_epochs: 10
-lambda_cam_warmup_power: 2.0
-cam_loss_type: "allclass_squared_containment"
+lambda_cam_warmup_epochs: 3
+lambda_cam_warmup_power: 1.0
+cam_loss_type: "squared_containment"
+# allclass_squared_containment only: true class + this many top competitors
+# (null = every class, the old behaviour).
+cam_allclass_topk: 5
 cam_softmax_temperature: 1.0
 outside_weight: 1.0
 inside_weight: 1.0
@@ -55,6 +63,11 @@ inside_weight: 1.0
 # Set only one of these two options.
 train_shots_per_class: 16
 train_fraction: null
+
+# Train split only; the same crop and flip are applied to image and mask.
+train_augment: true
+augment_crop_scale: [0.7, 1.0]
+augment_hflip: true
 
 diagnostics: true
 mask_audit: true
@@ -69,7 +82,7 @@ cam_snapshots_every: 1
 cam_debug: true
 cam_debug_top_k: 20
 
-runs_dir: "runs/bitm_r50x1_adapter_g8_16shot_cam005"
+runs_dir: "runs/bitm_r50x1_adapter_g8_16shot_state001"
 
 mask_dirs:
   cat: "sam_pseudo_masks_cat/masks"

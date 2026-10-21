@@ -78,9 +78,13 @@ def _localization_metrics(cam: torch.Tensor, mask: torch.Tensor, eps: float = 1e
 
     peak_index = int(cam.flatten().argmax())
     peak_coverage = float(inside.flatten()[peak_index])
+    abs_peak_index = int(cam.abs().flatten().argmax())
+    all_negative = bool((cam <= 0).all())
 
     return {
-        "containment": energy_out / (energy_in + energy_out + eps),
+        # relu containment is 0/eps = 0 -- a fake perfect score -- for a CAM
+        # with no positive cell, so it is left undefined there.
+        "containment": None if all_negative else energy_out / (energy_in + energy_out + eps),
         "uniform_containment": area_out / n_cells,
         "floor_containment": float(outside.min()),
         "mean_pos_inside": energy_in / (area_in + eps),
@@ -90,6 +94,10 @@ def _localization_metrics(cam: torch.Tensor, mask: torch.Tensor, eps: float = 1e
         "pointing_hit": 1.0 if peak_coverage >= 0.5 else 0.0,
         "cam_min": float(cam.min()),
         "cam_max": float(cam.max()),
+        "signed_inside_mean": float((cam * inside).sum()) / (area_in + eps),
+        "signed_outside_mean": float((cam * outside).sum()) / (area_out + eps),
+        "abs_peak_negative": 1.0 if float(cam.flatten()[abs_peak_index]) < 0 else 0.0,
+        "cam_all_negative": 1.0 if all_negative else 0.0,
     }
 
 
@@ -282,6 +290,10 @@ _METRIC_COLUMNS = (
     "pointing_hit",
     "cam_min",
     "cam_max",
+    "signed_inside_mean",
+    "signed_outside_mean",
+    "abs_peak_negative",
+    "cam_all_negative",
 )
 
 
@@ -352,7 +364,10 @@ def _save_full_test_report(records, iou_records, classes, cam_dir, cam_iou_thres
             f"(flat={summary.get('uniform_containment_mean', float('nan')):.4f} "
             f"floor={summary.get('floor_containment_mean', float('nan')):.4f}) "
             f"pointing={summary.get('pointing_hit_mean', float('nan')):.4f} "
-            f"bg_activation={summary.get('mean_pos_outside_mean', float('nan')):.4f}"
+            f"bg_activation={summary.get('mean_pos_outside_mean', float('nan')):.4f} "
+            f"signed in/out={summary.get('signed_inside_mean_mean', float('nan')):+.3f}/"
+            f"{summary.get('signed_outside_mean_mean', float('nan')):+.3f} "
+            f"all_negative={summary.get('cam_all_negative_mean', float('nan')):.3f}"
         )
     print(f"Saved per-sample test dump to {cam_dir / 'all_test_samples.csv'}")
 
