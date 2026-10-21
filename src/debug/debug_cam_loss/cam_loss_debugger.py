@@ -25,11 +25,12 @@ THIS_FILE = Path(__file__).resolve()
 SRC_DIR = THIS_FILE.parents[2]
 PROJECT_ROOT = SRC_DIR.parent
 
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-from model import ResNet18CAM
-from data import get_dataloaders
+from src.model import ResNet18CAM
+from src.data import get_dataloaders
+from src.normalization import IMAGENET_MEAN, IMAGENET_STD, denormalize_images
 
 
 # ==========================================================
@@ -70,8 +71,8 @@ SHOW_WINDOW = True
 OVERLAY_ALPHA = 0.45
 
 # نرمال‌سازی ImageNet
-IMAGE_MEAN = (0.485, 0.456, 0.406)
-IMAGE_STD = (0.229, 0.224, 0.225)
+IMAGE_MEAN = IMAGENET_MEAN
+IMAGE_STD = IMAGENET_STD
 
 
 # ==========================================================
@@ -98,6 +99,8 @@ def main() -> None:
         val_ratio=VAL_RATIO,
         seed=SEED,
         num_workers=NUM_WORKERS,
+        normalize_mean=IMAGE_MEAN,
+        normalize_std=IMAGE_STD,
         mask_dirs=None,
         mask_manifests=None,
         test_ratio=TEST_RATIO,
@@ -539,36 +542,9 @@ def image_to_uint8(
     elif image.shape[0] > 3:
         image = image[:3]
 
-    mean = torch.tensor(
-        IMAGE_MEAN,
-        dtype=image.dtype,
-    ).view(3, 1, 1)
-
-    std = torch.tensor(
-        IMAGE_STD,
-        dtype=image.dtype,
-    ).view(3, 1, 1)
-
-    restored = image * std + mean
-
-    # اگر دیتالودر ImageNet normalization نداشته باشد،
-    # از min-max صرفاً برای نمایش استفاده می‌شود.
-    if (
-        not torch.isfinite(restored).all()
-        or float(restored.min()) < -0.25
-        or float(restored.max()) > 1.25
-    ):
-        image_min = image.min()
-        image_max = image.max()
-
-        if float(image_max - image_min) > 1e-8:
-            restored = (
-                image - image_min
-            ) / (
-                image_max - image_min
-            )
-        else:
-            restored = torch.zeros_like(image)
+    restored = denormalize_images(image, IMAGE_MEAN, IMAGE_STD)
+    if not torch.isfinite(restored).all():
+        raise ValueError("Non-finite image after reversing the configured input normalization")
 
     restored = restored.clamp(0.0, 1.0)
 

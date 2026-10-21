@@ -1,5 +1,8 @@
 import torch
 import torch.nn.functional as F
+from src.normalization import (
+    normalize_images, denormalize_images, loader_normalization, normalization_for_loader,
+)
 
 
 # ---------------------------------------------------------
@@ -34,32 +37,6 @@ def get_logits(model_output):
     if isinstance(model_output, (tuple, list)):
         return model_output[0]
     return model_output
-
-
-# ---------------------------------------------------------
-# Normalization helpers
-# ---------------------------------------------------------
-
-def _stats_tensor(values, images):
-    return torch.tensor(values, device=images.device, dtype=images.dtype).view(1, -1, 1, 1)
-
-
-def normalize_images(images, mean, std):
-    """[0, 1] pixels -> normalized model input"""
-    if mean is None or std is None:
-        return images
-    mean_t = _stats_tensor(mean, images)
-    std_t = _stats_tensor(std, images)
-    return (images - mean_t) / std_t
-
-
-def denormalize_images(images, mean, std):
-    """normalized model input -> [0, 1] pixels"""
-    if mean is None or std is None:
-        return images
-    mean_t = _stats_tensor(mean, images)
-    std_t = _stats_tensor(std, images)
-    return images * std_t + mean_t
 
 
 # ---------------------------------------------------------
@@ -152,6 +129,10 @@ def clean_accuracy(model, loader, device):
 
 def adversarial_accuracy(model, loader, device, attack, **attack_kwargs):
     model.eval()
+
+    if loader_normalization(loader) is not None:
+        mean, std = normalization_for_loader(loader, attack_kwargs.get("mean"), attack_kwargs.get("std"))
+        attack_kwargs.update(mean=mean, std=std)
 
     correct = 0
     total = 0

@@ -16,11 +16,12 @@ from src.reports.final_report import write_cam_metrics_csv, write_final_report
 from src.reports.grad_probe import format_probe_line, probe_cam_head, run_grad_probe
 from src.reports.mask_audit import run_mask_audit
 from src.reports.snapshots import CAMSnapshotter
+from src.normalization import configure_normalization, normalization_for_loader
 
 
 def _autocast_context(device: str, use_amp: bool):
     if device == "cuda" and use_amp:
-        return torch.cuda.amp.autocast()
+        return torch.amp.autocast("cuda")
     return nullcontext()
 
 
@@ -262,6 +263,12 @@ def run_training(
     from src.evaluate import evaluate
     from src.utils import save_checkpoint
 
+    config = dict(config)
+    normalize_mean, normalize_std = configure_normalization(config)
+    for loader in (train_loader, val_loader, test_loader):
+        normalization_for_loader(loader, normalize_mean, normalize_std)
+    input_normalization = {"mean": list(normalize_mean), "std": list(normalize_std), "pixel_range": [0.0, 1.0]}
+
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     run_dir = Path(runs_dir) / timestamp
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -276,6 +283,7 @@ def run_training(
 
     model_info = {
         "model_class": model.__class__.__name__,
+        "input_normalization": input_normalization,
         "num_classes": len(classes),
         "classes": classes,
         "num_parameters": num_params,
@@ -339,8 +347,8 @@ def run_training(
                 run_dir=run_dir,
                 num_samples=int(config.get("cam_snapshots_count", 8)),
                 seed=int(config.get("seed", 42)),
-                normalize_mean=config.get("normalize_mean", (0.485, 0.456, 0.406)),
-                normalize_std=config.get("normalize_std", (0.229, 0.224, 0.225)),
+                normalize_mean=normalize_mean,
+                normalize_std=normalize_std,
                 cam_loss_type=config.get("cam_loss_type", "containment"),
             )
 
@@ -519,6 +527,7 @@ def run_training(
                 path=run_dir / "last_resnet18_cam.pth",
                 extra={
                     "val_acc": val_metrics["acc"],
+                    "input_normalization": input_normalization,
                     "lambda_cam": current_lambda_cam,
                     "lr": current_lr,
                 },
@@ -535,6 +544,7 @@ def run_training(
                     path=run_dir / "best_resnet18_cam.pth",
                     extra={
                         "val_acc": best_val_acc,
+                        "input_normalization": input_normalization,
                         "lambda_cam": current_lambda_cam,
                         "lr": current_lr,
                     },
@@ -599,8 +609,8 @@ def run_training(
             run_dir=run_dir,
             top_k=int(config.get("cam_debug_top_k", 20)),
             cam_iou_threshold=float(config.get("cam_debug_iou_threshold", 0.5)),
-            normalize_mean=config.get("normalize_mean", (0.485, 0.456, 0.406)),
-            normalize_std=config.get("normalize_std", (0.229, 0.224, 0.225)),
+            normalize_mean=normalize_mean,
+            normalize_std=normalize_std,
         )
 
     if diagnostics_enabled:

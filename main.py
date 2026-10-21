@@ -7,6 +7,7 @@ import yaml
 from src.data import get_dataloaders
 from src.losses import build_cam_loss
 from src.model_factory import build_model
+from src.normalization import configure_normalization
 from src.train import run_training
 from src.utils import get_device, set_seed
 from src.mask_config_utils import build_mask_config
@@ -27,6 +28,8 @@ def main():
 
     with open(config_path, "r", encoding="utf-8") as file:
         config = yaml.safe_load(file)
+
+    normalize_mean, normalize_std = configure_normalization(config)
 
     set_seed(config.get("seed", 42))
 
@@ -54,6 +57,8 @@ def main():
         val_ratio=config.get("val_ratio", 0.2),
         seed=config.get("seed", 42),
         num_workers=config.get("num_workers", 0),
+        normalize_mean=normalize_mean,
+        normalize_std=normalize_std,
         mask_dirs=config.get("mask_dirs", {}),
         mask_manifests=config.get("mask_manifests", {}),
         test_ratio=config.get("test_ratio", 0.1),
@@ -115,29 +120,21 @@ def main():
     
     print("\n=== Adversarial evaluation ===")
 
-    attack_mean = config.get(
-        "attack_normalize_mean",
-        [0.485, 0.456, 0.406],
-    )
+    attack_mean, attack_std = normalize_mean, normalize_std
 
-    attack_std = config.get(
-        "attack_normalize_std",
-        [0.229, 0.224, 0.225],
-    )
-
-    results = evaluate_adversarial_robustness(
-        model=model,
-        loader=test_loader,
-        device=device,
-        mean=attack_mean,
-        std=attack_std,
-        epsilons=[
-            1 / 255,
-            2 / 255,
-        ],
-        pgd_steps=10,
-    )
+    # results = evaluate_adversarial_robustness(
+    #     model=model,
+    #     loader=test_loader,
+    #     device=device,
+    #     mean=attack_mean,
+    #     std=attack_std,
+    #     epsilons=[
+    #         1 / 255,
+    #         2 / 255,
+    #     ],
+    #     pgd_steps=10,
+    # )
 
 
 if __name__ == "__main__":
-    main()  
+    main()

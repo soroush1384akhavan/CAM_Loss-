@@ -15,6 +15,7 @@ from PIL import Image, ImageDraw
 from src.utils import load_checkpoint, get_device
 from src.model_factory import build_model
 from src.reports.cam_viz import signed_cam_overlay
+from src.normalization import configure_normalization, normalization_for_loader
 
 
 
@@ -123,8 +124,8 @@ def run_cam_debug(
     run_dir,
     top_k: int = 20,
     cam_iou_threshold: float = 0.5,
-    normalize_mean=(0.485, 0.456, 0.406),
-    normalize_std=(0.229, 0.224, 0.225),
+    normalize_mean=None,
+    normalize_std=None,
     overlay_gamma: float = 0.6,
     overlay_alpha_gain: float = 1.5,
 ):
@@ -133,6 +134,7 @@ def run_cam_debug(
 
     ce_none = torch.nn.CrossEntropyLoss(reduction="none")
 
+    normalize_mean, normalize_std = normalization_for_loader(test_loader, normalize_mean, normalize_std)
     mean_t = torch.tensor(normalize_mean).view(1, 3, 1, 1)
     std_t = torch.tensor(normalize_std).view(1, 3, 1, 1)
 
@@ -357,7 +359,7 @@ def _save_full_test_report(records, iou_records, classes, cam_dir, cam_iou_thres
 
 def main(
     model, test_loader, classes, device, run_dir,
-    normalize_mean=(0.485, 0.456, 0.406), normalize_std=(0.229, 0.224, 0.225),
+    normalize_mean=None, normalize_std=None,
 ):
     run_cam_debug(
         model=model,
@@ -378,6 +380,8 @@ if __name__ == "__main__":
     with open(config_path, "r", encoding="utf-8") as file:
         config = yaml.safe_load(file)
 
+    normalize_mean, normalize_std = configure_normalization(config)
+
     _, _, test_loader, classes = get_dataloaders(
             data_dir=config["data_dir"],
             image_size=config.get("image_size", 224),
@@ -388,21 +392,21 @@ if __name__ == "__main__":
             mask_dirs=config.get("mask_dirs", {}),
             mask_manifests=config.get("mask_manifests", None),
             test_ratio=config.get("test_ratio", 0.1),
-            normalize_mean=config.get("normalize_mean", (0.485, 0.456, 0.406)),
-            normalize_std=config.get("normalize_std", (0.229, 0.224, 0.225)),
+            normalize_mean=normalize_mean,
+            normalize_std=normalize_std,
     )
     num_classes = len(classes)
     device = get_device()
     
     
     model = build_model(config, num_classes).to(device)
-    model = load_checkpoint(model, device="cuda")
+    model = load_checkpoint(model, device=device, normalization=(normalize_mean, normalize_std))
 
 
     main(
-        model=model, test_loader=test_loader, classes=classes, device="cuda", run_dir="runs",
-        normalize_mean=config.get("normalize_mean", (0.485, 0.456, 0.406)),
-        normalize_std=config.get("normalize_std", (0.229, 0.224, 0.225)),
+        model=model, test_loader=test_loader, classes=classes, device=device, run_dir="runs",
+        normalize_mean=normalize_mean,
+        normalize_std=normalize_std,
     )
 
 ## for run : python -m src.cam_debug

@@ -26,9 +26,9 @@ import torch.nn.functional as F
 from PIL import Image, ImageDraw
 
 from src.reports.cam_viz import signed_cam_overlay
-
-IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)
-IMAGENET_STD = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
+from src.normalization import (
+    IMAGENET_MEAN, IMAGENET_STD, denormalize_images, normalization_for_loader,
+)
 
 _CAPTION_HEIGHT = 46
 _HEADER_HEIGHT = 22
@@ -46,7 +46,7 @@ def _get_font():
 
 
 def _denormalize(image: torch.Tensor, mean=IMAGENET_MEAN, std=IMAGENET_STD) -> np.ndarray:
-    img = image.detach().cpu() * std + mean
+    img = denormalize_images(image.detach().cpu(), mean, std)
     img = img.clamp(0, 1)
     return (img.permute(1, 2, 0).numpy() * 255).astype(np.uint8)
 
@@ -91,8 +91,8 @@ class CAMSnapshotter:
         max_scan_batches: int = 50,
         overlay_gamma: float = 0.6,
         overlay_alpha_gain: float = 1.5,
-        normalize_mean=(0.485, 0.456, 0.406),
-        normalize_std=(0.229, 0.224, 0.225),
+        normalize_mean=None,
+        normalize_std=None,
         cam_loss_type="containment",
     ):
         self.device = device
@@ -103,8 +103,9 @@ class CAMSnapshotter:
 
         self.overlay_gamma = overlay_gamma
         self.overlay_alpha_gain = overlay_alpha_gain
-        self.normalize_mean = torch.tensor(normalize_mean).view(3, 1, 1)
-        self.normalize_std = torch.tensor(normalize_std).view(3, 1, 1)
+        self.normalize_mean, self.normalize_std = normalization_for_loader(
+            loader, normalize_mean, normalize_std,
+        )
         self.cam_loss_type = str(cam_loss_type).lower()
 
         if loader is None or num_samples <= 0:

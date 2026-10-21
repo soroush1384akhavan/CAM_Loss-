@@ -89,6 +89,7 @@ from matplotlib.patches import Rectangle
 from src.data import get_dataloaders
 from src.model_factory import build_model
 from src.utils import get_device, load_checkpoint
+from src.normalization import resolve_normalization, validate_checkpoint_normalization
 
 
 # ---------------------------------------------------------------------------
@@ -110,20 +111,15 @@ def deep_get(d: dict, path: str, default=None):
 
 
 def infer_norm(config: dict):
-    mean = (
-        config.get("normalize_mean")
-        or deep_get(config, "data.normalize_mean")
-        or (0.485, 0.456, 0.406)
-    )
-    std = (
-        config.get("normalize_std")
-        or deep_get(config, "data.normalize_std")
-        or (0.229, 0.224, 0.225)
-    )
-    return tuple(float(x) for x in mean), tuple(float(x) for x in std)
+    resolved = dict(config)
+    for key in ("normalize_mean", "normalize_std"):
+        if resolved.get(key) is None:
+            resolved[key] = deep_get(config, f"data.{key}")
+    return resolve_normalization(resolved)
 
 
 def build_test_loader(config: dict):
+    normalize_mean, normalize_std = infer_norm(config)
     _, _, test_loader, classes = get_dataloaders(
         data_dir=config["data_dir"],
         image_size=config.get("image_size", 224),
@@ -131,6 +127,8 @@ def build_test_loader(config: dict):
         val_ratio=config.get("val_ratio", 0.2),
         seed=config.get("seed", 42),
         num_workers=config.get("num_workers", 0),
+        normalize_mean=normalize_mean,
+        normalize_std=normalize_std,
         mask_dirs=config.get("mask_dirs", {}),
         mask_manifests=config.get("mask_manifests", None),
         test_ratio=config.get("test_ratio", 0.1),
@@ -140,7 +138,7 @@ def build_test_loader(config: dict):
 
 def _state_dict_candidates(obj):
     if isinstance(obj, dict):
-        for key in ("model", "state_dict", "student", "teacher", "net"):
+        for key in ("model_state_dict", "model", "state_dict", "student", "teacher", "net"):
             if key in obj and isinstance(obj[key], dict):
                 yield obj[key]
         yield obj
@@ -170,8 +168,10 @@ def _clean_state_dict(state: dict, role: str):
     return out
 
 
-def load_explicit_checkpoint(model, path: str, device, role: str):
+def load_explicit_checkpoint(model, path: str, device, role: str, normalization=None):
     ck = torch.load(path, map_location=device)
+    if normalization is not None:
+        validate_checkpoint_normalization(ck, *normalization)
     model_keys = set(model.state_dict().keys())
 
     best = None
@@ -209,18 +209,22 @@ def build_one_model(
     ckpt: Optional[str],
     role: str,
     allow_default_loader: bool = False,
+    input_normalization=None,
 ):
+    normalization = infer_norm(config)
+    if input_normalization is not None and normalization != input_normalization:
+        raise ValueError(f"{role} normalization differs from the shared ERF loader; use matching input transforms")
     model = build_model(config, num_classes).to(device)
 
     if ckpt:
-        model = load_explicit_checkpoint(model, ckpt, device, role)
+        model = load_explicit_checkpoint(model, ckpt, device, role, normalization=normalization)
     elif allow_default_loader:
         # This mirrors the user's existing cam_debug.py behavior.
         try:
-            model = load_checkpoint(model, device=device)
+            model = load_checkpoint(model, device=device, normalization=normalization)
             print(f"{role:8s}: loaded via src.utils.load_checkpoint default behavior")
         except TypeError:
-            model = load_checkpoint(model, device=str(device))
+            model = load_checkpoint(model, device=str(device), normalization=normalization)
             print(f"{role:8s}: loaded via src.utils.load_checkpoint default behavior")
     else:
         print(f"{role:8s}: no checkpoint supplied; using built model weights")
@@ -1052,6 +1056,7 @@ def main():
             ckpt if ckpt else None,
             "model",
             allow_default_loader=(not ckpt),
+            input_normalization=(mean, std),
         )
         reference_name = "model"
     else:
@@ -1064,6 +1069,7 @@ def main():
                 None,
                 "model",
                 allow_default_loader=True,
+                input_normalization=(mean, std),
             )
             reference_name = "model"
             print(
@@ -1078,6 +1084,7 @@ def main():
                     device,
                     args.teacher_ckpt,
                     "teacher",
+                    input_normalization=(mean, std),
                 )
             if args.student_ckpt:
                 models["student"] = build_one_model(
@@ -1086,6 +1093,7 @@ def main():
                     device,
                     args.student_ckpt,
                     "student",
+                    input_normalization=(mean, std),
                 )
 
             reference_name = "teacher" if "teacher" in models else list(models.keys())[0]
