@@ -15,6 +15,7 @@
 | State | تاریخ | Commit | خلاصه |
 |---|---|---|---|
 | [STATE_000](STATE_000_baseline_snapshot.md) | 2026-10-21 | `5fa3e1d` | snapshot کار آزمایشگاه قبل از اصلاحات. مشکل sign flip در CAM، باگ early stopping و تست روی وزن آخر |
+| [STATE_001](STATE_001_run_analysis_fixes.md) | 2026-10-21 | `a1ac006` | اصلاح ۹ مشکل `RUNS_ANALYSIS_FA.md`: مرکزسازی CAM، انتخاب بعد از warm-up، متریک‌های علامت‌دار و augmentation. اجرای کامل هنوز انجام نشده |
 
 ## روش ساختن state جدید
 
