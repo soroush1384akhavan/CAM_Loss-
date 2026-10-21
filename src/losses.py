@@ -124,10 +124,15 @@ class CAMAllClassSquaredContainmentLoss(nn.Module):
     def __init__(
         self,
         outside_weight=1.0,
+        topk=None,
         eps=1e-6,
     ):
         super().__init__()
         self.outside_weight = outside_weight
+        # None averages over every class (legacy). An int k restricts the loss to
+        # the true class plus the k strongest competitors: averaging over classes
+        # absent from the image mostly rewards a shared blob on the object.
+        self.topk = None if topk is None else int(topk)
         self.eps = eps
 
     def forward(
@@ -155,8 +160,16 @@ class CAMAllClassSquaredContainmentLoss(nn.Module):
         # [B, 1, H, W]
         outside = 1.0 - mask.float()
 
+        if self.topk is not None and self.topk < K - 1:
+            logits = cams.detach().float().mean(dim=(2, 3))
+            logits[torch.arange(B, device=cams.device), labels] = float("inf")
+            selected = logits.topk(self.topk + 1, dim=1).indices
+            cams = cams.gather(
+                1, selected[:, :, None, None].expand(-1, -1, H, W)
+            )
+
         # [B, K, H, W]
-        energy = cams.square()
+        energy = cams.float().square()
 
         # broadcast outside over K classes
         # -> [B, K]
@@ -330,7 +343,8 @@ def build_cam_loss(config: dict) -> nn.Module:
         
     if loss_type == "allclass_squared_containment":
         return CAMAllClassSquaredContainmentLoss(
-            outside_weight = outside_weight,
+            outside_weight=outside_weight,
+            topk=config.get("cam_allclass_topk"),
         )
     
 

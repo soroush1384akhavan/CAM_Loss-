@@ -13,7 +13,11 @@ import torch.nn.functional as F
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.losses import CAMMaskLoss, CAMSoftmaxMaskLoss, build_cam_loss  # noqa: E402
+from src.losses import (  # noqa: E402
+    CAMContainmentLoss as CAMMaskLoss,
+    CAMSoftmaxContainmentLoss as CAMSoftmaxMaskLoss,
+    build_cam_loss,
+)
 
 torch.manual_seed(0)
 B, K, H, W = 6, 4, 7, 7
@@ -130,11 +134,11 @@ check("averages only over masked samples",
 
 # 8. factory
 check("factory: softmax", isinstance(
-    build_cam_loss({"cam_loss_type": "softmax", "cam_softmax_temperature": 2.0}),
+    build_cam_loss({"cam_loss_type": "softmax_containment", "cam_softmax_temperature": 2.0}),
     CAMSoftmaxMaskLoss))
 check("factory: temperature honoured", build_cam_loss(
-    {"cam_loss_type": "softmax", "cam_softmax_temperature": 2.0}).temperature == 2.0)
-check("factory: default stays 'ratio'", isinstance(build_cam_loss({}), CAMMaskLoss))
+    {"cam_loss_type": "softmax_containment", "cam_softmax_temperature": 2.0}).temperature == 2.0)
+check("factory: default stays 'containment'", isinstance(build_cam_loss({}), CAMMaskLoss))
 try:
     build_cam_loss({"cam_loss_type": "nope"})
     check("factory: rejects unknown", False)

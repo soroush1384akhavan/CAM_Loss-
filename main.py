@@ -64,6 +64,9 @@ def main():
         test_ratio=config.get("test_ratio", 0.1),
         train_shots_per_class=config.get("train_shots_per_class", None),
         train_fraction=config.get("train_fraction", None),
+        train_augment=bool(config.get("train_augment", False)),
+        augment_crop_scale=config.get("augment_crop_scale", [0.7, 1.0]),
+        augment_hflip=bool(config.get("augment_hflip", True)),
     )
 
     num_classes = len(classes)

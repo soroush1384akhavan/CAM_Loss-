@@ -92,12 +92,14 @@ class BiTMR50x1CAMWithAdapter(nn.Module):
         gamma: int = 4,
         adapter_kernel_size: int = 3,
         freeze_backbone: bool = True,
+        center_cams: bool = False,
     ):
         super().__init__()
         if num_classes <= 0:
             raise ValueError("num_classes must be positive")
 
         self.freeze_backbone = freeze_backbone
+        self.center_cams = center_cams
         self.backbone = timm.create_model(
             BIT_MODEL_NAME,
             pretrained=False,
@@ -132,6 +134,11 @@ class BiTMR50x1CAMWithAdapter(nn.Module):
     def forward(self, x: torch.Tensor):
         features = self.backbone.forward_features(x)
         cams = self.cam_conv(features)
+        if self.center_cams:
+            # CE is invariant to a map shared by every class, so without this
+            # the CAM loss can satisfy itself through a free, shared negative
+            # blob on the object. Softmax probabilities are unchanged.
+            cams = cams - cams.mean(dim=1, keepdim=True)
         return self.gap(cams).flatten(1), cams
 
     def trainable_parameter_count(self) -> int:
