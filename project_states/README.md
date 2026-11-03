@@ -16,6 +16,7 @@
 |---|---|---|---|
 | [STATE_000](STATE_000_baseline_snapshot.md) | ۱۴۰۵-۰۷-۳۰ | `5fa3e1d` | اسنپ‌شات کار آزمایشگاه قبل از اصلاحات: مشکل sign flip در CAM، باگ early stopping و اجرای تست روی وزن‌های آخرین epoch |
 | [STATE_001](STATE_001_run_analysis_fixes.md) | ۱۴۰۵-۰۷-۳۰ | `a1ac006` | رفع ۹ مشکل از `RUNS_ANALYSIS_FA.md`: مرکزسازی CAM، انتخاب best بعد از warm-up، متریک‌های علامت‌دار و augmentation؛ اجرای کامل هنوز انجام نشده |
+| [STATE_002](STATE_002_seed_sweep_and_kaggle.md) | ۱۴۰۵-۰۸-۱۲ | `7a512d6` | sweep با ۳ seed (۴۵ ران): CAM loss در ۳۰ از ۳۰ مقایسهٔ زوجی دقت را بالا برد؛ پایپ‌لاین Kaggle؛ رفع باگ augmentation و باگ ماسک روی لینوکس |
 
 > نسخه انگلیسی این فایل‌ها در پوشه [en/](en/) موجود است.
 
