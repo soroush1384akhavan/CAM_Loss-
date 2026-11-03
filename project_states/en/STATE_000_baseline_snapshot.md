@@ -4,9 +4,9 @@
 |---|---|
 | Date | 2026-10-21 (code corresponds to lab work up to 2026-09-07) |
 | Branch | `lab-work-imported` |
-| Commit | `5fa3e1d` — *snapshot: state 000 before run-analysis fixes* |
+| Commit | `cb9da2a` — *snapshot: state 000 before run-analysis fixes* |
 | Previous State | — (first state) |
-| Restore | `git checkout 5fa3e1d` |
+| Restore | `git checkout cb9da2a` |
 
 ---
 

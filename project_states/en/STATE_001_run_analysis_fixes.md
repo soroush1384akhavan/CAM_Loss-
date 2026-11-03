@@ -4,10 +4,10 @@
 |---|---|
 | Date | 2026-10-21 |
 | Branch | `lab-work-imported` |
-| Commit | `a1ac006` — *fix: CAM sign flip, warm-up-aware selection, signed metrics, augmentation* |
-| Previous State | [STATE_000](STATE_000_baseline_snapshot.md) (`5fa3e1d`) |
-| Restore | `git checkout a1ac006` |
-| Code diff | `git diff 5fa3e1d a1ac006` |
+| Commit | `3662abb` — *fix: CAM sign flip, warm-up-aware selection, signed metrics, augmentation* |
+| Previous State | [STATE_000](STATE_000_baseline_snapshot.md) (`cb9da2a`) |
+| Restore | `git checkout 3662abb` |
+| Code diff | `git diff cb9da2a 3662abb` |
 
 ---
 
@@ -85,7 +85,7 @@ The only run is a **2-epoch smoke test** on Cars, verifying pipeline health — 
 
 ### 7.1 Code Changes
 
-`git diff --stat 5fa3e1d a1ac006`: 11 files, +419 / −72.
+`git diff --stat cb9da2a 3662abb`: 11 files, +419 / −72.
 
 | File | STATE_000 | STATE_001 |
 |---|---|---|

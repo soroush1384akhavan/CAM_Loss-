@@ -4,10 +4,10 @@
 |---|---|
 | تاریخ ثبت | ۱۴۰۵-۰۸-۱۲ |
 | Branch | `lab-work-imported` |
-| Commit | `7a512d6` — *fix: cross-OS mask manifests and DataLoader augmentation; add seed sweep* |
-| State قبلی | [STATE_001](STATE_001_run_analysis_fixes.md) (`a1ac006`) |
-| بازگشت به این state | `git checkout 7a512d6` |
-| مقایسه کد با state قبلی | `git diff a1ac006 7a512d6` |
+| Commit | `856ecfc` — *fix: cross-OS mask manifests and DataLoader augmentation; add seed sweep* |
+| State قبلی | [STATE_001](STATE_001_run_analysis_fixes.md) (`3662abb`) |
+| بازگشت به این state | `git checkout 856ecfc` |
+| مقایسه کد با state قبلی | `git diff 3662abb 856ecfc` |
 
 ---
 
@@ -97,7 +97,7 @@ loss = CE(GAP(cam), y) + λ_cam · squared_containment(CAM مرکزشده، ما
 
 ### ۷.۱ تغییرات کد
 
-`git diff --stat a1ac006 7a512d6`: ‏۱۴ فایل، ‎+849 / −6 (بدون `project_states/`).
+`git diff --stat 3662abb 856ecfc`: ‏۱۴ فایل، ‎+849 / −6 (بدون `project_states/`).
 
 | فایل | STATE_001 | STATE_002 |
 |---|---|---|

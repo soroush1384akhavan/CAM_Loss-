@@ -14,9 +14,9 @@ Each state file contains:
 
 | State | Date | Commit | Summary |
 |---|---|---|---|
-| [STATE_000](STATE_000_baseline_snapshot.md) | 2026-10-21 | `5fa3e1d` | Lab-work snapshot before fixes: CAM sign-flip, early-stopping bug, test run on last-epoch weights |
-| [STATE_001](STATE_001_run_analysis_fixes.md) | 2026-10-21 | `a1ac006` | Fixed 9 issues from RUNS_ANALYSIS: CAM centering, post-warmup best selection, signed metrics, augmentation. Full training run not yet done |
-| [STATE_002](STATE_002_seed_sweep_and_kaggle.md) | 2026-11-03 | `7a512d6` | 3-seed sweep (45 runs): CAM loss improves accuracy in 30/30 paired comparisons; Kaggle pipeline; augmentation and Linux mask-loading bugs fixed |
+| [STATE_000](STATE_000_baseline_snapshot.md) | 2026-10-21 | `cb9da2a` | Lab-work snapshot before fixes: CAM sign-flip, early-stopping bug, test run on last-epoch weights |
+| [STATE_001](STATE_001_run_analysis_fixes.md) | 2026-10-21 | `3662abb` | Fixed 9 issues from RUNS_ANALYSIS: CAM centering, post-warmup best selection, signed metrics, augmentation. Full training run not yet done |
+| [STATE_002](STATE_002_seed_sweep_and_kaggle.md) | 2026-11-03 | `856ecfc` | 3-seed sweep (45 runs): CAM loss improves accuracy in 30/30 paired comparisons; Kaggle pipeline; augmentation and Linux mask-loading bugs fixed |
 
 > Persian versions of these files are in the parent folder [../](../).
 

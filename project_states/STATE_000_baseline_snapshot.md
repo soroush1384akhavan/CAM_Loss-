@@ -4,9 +4,9 @@
 |---|---|
 | تاریخ ثبت | ۱۴۰۵-۰۷-۳۰ (کد مربوط به کار آزمایشگاه تا ۱۴۰۳-۰۶-۱۶) |
 | Branch | `lab-work-imported` |
-| Commit | `5fa3e1d` — *snapshot: state 000 before run-analysis fixes* |
+| Commit | `cb9da2a` — *snapshot: state 000 before run-analysis fixes* |
 | State قبلی | — (اولین state) |
-| بازگشت به این state | `git checkout 5fa3e1d` |
+| بازگشت به این state | `git checkout cb9da2a` |
 
 ---
 

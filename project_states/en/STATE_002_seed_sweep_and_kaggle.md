@@ -4,10 +4,10 @@
 |---|---|
 | Date | 2026-11-03 |
 | Branch | `lab-work-imported` |
-| Commit | `7a512d6` — *fix: cross-OS mask manifests and DataLoader augmentation; add seed sweep* |
-| Previous state | [STATE_001](STATE_001_run_analysis_fixes.md) (`a1ac006`) |
-| Restore this state | `git checkout 7a512d6` |
-| Code diff vs previous | `git diff a1ac006 7a512d6` |
+| Commit | `856ecfc` — *fix: cross-OS mask manifests and DataLoader augmentation; add seed sweep* |
+| Previous state | [STATE_001](STATE_001_run_analysis_fixes.md) (`3662abb`) |
+| Restore this state | `git checkout 856ecfc` |
+| Code diff vs previous | `git diff 3662abb 856ecfc` |
 
 ---
 
@@ -97,7 +97,7 @@ Full report: [SEED_SWEEP_RESULTS.md](../../SEED_SWEEP_RESULTS.md).
 
 ### 7.1 Code Changes
 
-`git diff --stat a1ac006 7a512d6`: 14 files, +849 / −6 (excluding `project_states/`).
+`git diff --stat 3662abb 856ecfc`: 14 files, +849 / −6 (excluding `project_states/`).
 
 | File | STATE_001 | STATE_002 |
 |---|---|---|

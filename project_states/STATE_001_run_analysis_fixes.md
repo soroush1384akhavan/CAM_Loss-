@@ -4,10 +4,10 @@
 |---|---|
 | تاریخ ثبت | ۱۴۰۵-۰۷-۳۰ |
 | Branch | `lab-work-imported` |
-| Commit | `a1ac006` — *fix: CAM sign flip, warm-up-aware selection, signed metrics, augmentation* |
-| State قبلی | [STATE_000](STATE_000_baseline_snapshot.md) (`5fa3e1d`) |
-| بازگشت به این state | `git checkout a1ac006` |
-| مقایسه کد با state قبلی | `git diff 5fa3e1d a1ac006` |
+| Commit | `3662abb` — *fix: CAM sign flip, warm-up-aware selection, signed metrics, augmentation* |
+| State قبلی | [STATE_000](STATE_000_baseline_snapshot.md) (`cb9da2a`) |
+| بازگشت به این state | `git checkout 3662abb` |
+| مقایسه کد با state قبلی | `git diff cb9da2a 3662abb` |
 
 ---
 
@@ -85,7 +85,7 @@ loss = CE(GAP(cam), y) + λ_cam · cam_loss(cam, SAM pseudo-mask)
 
 ### ۷.۱ تغییرات کد
 
-`git diff --stat 5fa3e1d a1ac006`: 11 فایل، ‎+419 / −72.
+`git diff --stat cb9da2a 3662abb`: 11 فایل، ‎+419 / −72.
 
 | فایل | STATE_000 | STATE_001 |
 |---|---|---|
