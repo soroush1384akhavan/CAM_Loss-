@@ -18,9 +18,9 @@ from src.mask_config_utils import build_mask_config
 CONFIG_PATH = Path("configs/config.yaml")
 OUTPUT_DIR = Path("sweep_results")
 SHOTS = [1, 2, 4, 8, 16]
-LAMBDAS = [0.0, 0.3, 0.5, 1.0, 3.0]
-SWEEP_EPOCHS = 20
-REPEATS = 3          # <-- تعداد تکرار هر ترکیب (shots, lambda)
+LAMBDAS = [0.0, 0.5, 3.0]
+SWEEP_EPOCHS = 15
+REPEATS = 1          # <-- تعداد تکرار هر ترکیب (shots, lambda)
 # -------------------------------------------------
 
 

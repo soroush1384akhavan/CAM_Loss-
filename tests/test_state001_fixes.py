@@ -180,5 +180,42 @@ with tempfile.TemporaryDirectory() as tmp:
           and plain["has_mask"].item() == 1.0)
     check("AugmentedSubset still exposes the base dataset", aug.dataset is ds and aug.indices == [0])
 
+    # The DataLoader path (__getitems__) must augment too, not just aug[i].
+    aug4 = AugmentedSubset(ds, [0, 0, 0, 0])
+    torch.manual_seed(1)
+    loader_flips = sum(
+        int((batch["mask"][:, 0, :, -1].mean(dim=1) > 0.5).sum())
+        for _ in range(8) for batch in DataLoader(aug4, batch_size=4)
+    )
+    check("DataLoader batches are augmented", loader_flips > 0, f"{loader_flips}/32 flipped via DataLoader")
+
+# 8. Manifests written on Windows must also parse on Linux (Kaggle).
+from pathlib import PurePosixPath  # noqa: E402
+from src.data import _stem_from_any_path, load_valid_mask_stems  # noqa: E402
+
+win_path = r"D:\CVLab\temp\SAM\sam_pseudo_masks_cars\Cls\masks\test_01537.png"
+check("Windows-style manifest path -> stem", _stem_from_any_path(win_path) == "test_01537")
+check("POSIX-style manifest path -> stem", _stem_from_any_path("/kaggle/x/masks/test_01537.png") == "test_01537")
+check("(the old Path().stem breaks on Linux)", PurePosixPath(win_path).stem != "test_01537")
+
+with tempfile.TemporaryDirectory() as tmp:
+    root = Path(tmp)
+    manifest = root / "manifest.csv"
+    manifest.write_text("image_path,mask_path,has_mask,status\n"
+                        f"cars\\Cls\\a.jpg,{win_path.replace('test_01537', 'a')},1,ok\n"
+                        "cars\\Cls\\b.jpg,,0,no_detection\n", encoding="utf-8")
+    check("manifest with Windows paths yields its valid stems", load_valid_mask_stems(manifest) == {"a"})
+
+    (root / "data" / "Cls").mkdir(parents=True)
+    Image.fromarray(np.zeros((8, 8, 3), dtype=np.uint8)).save(root / "data" / "Cls" / "a.png")
+    empty = root / "empty.csv"
+    empty.write_text("image_path,mask_path,has_mask,status\ncars\\Cls\\a.jpg,,0,no_detection\n", encoding="utf-8")
+    try:
+        ImageFolderWithClassMasks(str(root / "data"), image_size=8, mask_dirs={"Cls": str(root)},
+                                  mask_manifests={"Cls": str(empty)})
+        check("dataset refuses manifests with zero usable masks", False)
+    except RuntimeError:
+        check("dataset refuses manifests with zero usable masks", True)
+
 print("\nALL PASS" if ok else "\nFAILURES ABOVE")
 raise SystemExit(0 if ok else 1)

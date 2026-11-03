@@ -127,3 +127,6 @@ weights/
 tmp/
 notion_export/
 Microsoft/
+
+# generated Kaggle kernel (kaggle/build_kernel.py)
+kaggle/kernel/

@@ -1,5 +1,5 @@
 import random
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import csv
 from typing import Dict, Optional, Tuple, List
 
@@ -27,6 +27,13 @@ def _normalize_mapping(mapping: Optional[dict]) -> Dict[str, Path]:
     return {str(k): Path(v) for k, v in mapping.items()}
 
 
+def _stem_from_any_path(path_str: str) -> str:
+    # Manifests are written on Windows ("D:\...\x.png"). On Linux, Path()
+    # does not split on backslashes, so its .stem would be the whole string and
+    # no image would ever match its mask. PureWindowsPath splits on both.
+    return PureWindowsPath(path_str).stem
+
+
 def load_valid_mask_stems(manifest_path: Path) -> Optional[set]:
 
     if not manifest_path or not manifest_path.exists():
@@ -43,11 +50,11 @@ def load_valid_mask_stems(manifest_path: Path) -> Optional[set]:
 
             if has_mask == "1" and status == "ok":
                 if mask_path:
-                    valid.add(Path(mask_path).stem)
+                    valid.add(_stem_from_any_path(mask_path))
                 else:
                     image_path = row.get("image_path", "")
                     if image_path:
-                        valid.add(Path(image_path).stem)
+                        valid.add(_stem_from_any_path(image_path))
 
     return valid
 
@@ -119,6 +126,15 @@ class ImageFolderWithClassMasks(Dataset):
                 self.valid_mask_stems_by_class[class_name] = load_valid_mask_stems(manifest_path)
             else:
                 self.valid_mask_stems_by_class[class_name] = None
+
+        manifests = [v for v in self.valid_mask_stems_by_class.values() if v is not None]
+        if manifests and not any(manifests):
+            # Every manifest parsed to zero valid masks: training would run with
+            # the CAM loss silently stuck at 0 (lambda_cam has no effect).
+            raise RuntimeError(
+                f"{len(manifests)} mask manifests found but none lists a usable mask; "
+                "check the manifest paths and mask_root."
+            )
 
         self.image_transform = transforms.Compose([
             transforms.Resize((image_size, image_size)),
@@ -253,6 +269,11 @@ class AugmentedSubset(Subset):
 
     def __getitem__(self, idx):
         return self.dataset.load(self.indices[idx], augment=True)
+
+    # DataLoader fetches batches through __getitems__; Subset's own version
+    # indexes the base dataset directly and would silently skip augmentation.
+    def __getitems__(self, indices):
+        return [self[idx] for idx in indices]
 
 
 def _subsample_train_indices(
